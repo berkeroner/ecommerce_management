@@ -1,0 +1,750 @@
+databaseChangeLog:
+- changeSet:
+    id: 1788264049099-1
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: addressesPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: address_line
+            type: TEXT
+        - column:
+            constraints:
+              nullable: false
+            name: address_type
+            type: ENUM('BILLING', 'SHIPPING')
+        - column:
+            constraints:
+              nullable: false
+            name: addressable_id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: addressable_type
+            type: ENUM('CUSTOMER', 'ORDER')
+        - column:
+            constraints:
+              nullable: false
+            name: city
+            type: VARCHAR(100)
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: district
+            type: VARCHAR(100)
+        - column:
+            name: postal_code
+            type: VARCHAR(20)
+        - column:
+            constraints:
+              nullable: false
+            name: title
+            type: VARCHAR(100)
+        - column:
+            constraints:
+              nullable: false
+            name: updated_at
+            type: datetime(6)
+        tableName: addresses
+- changeSet:
+    id: 1788264049099-2
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: attachmentsPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: attachable_id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: attachable_type
+            type: ENUM('ORDER', 'PAYMENT', 'PRODUCT')
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: mime_type
+            type: VARCHAR(100)
+        - column:
+            constraints:
+              nullable: false
+            name: original_name
+            type: VARCHAR(255)
+        - column:
+            constraints:
+              nullable: false
+            name: path
+            type: VARCHAR(500)
+        - column:
+            constraints:
+              nullable: false
+            name: size
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: type
+            type: ENUM('IMAGE', 'INVOICE', 'RECEIPT')
+        tableName: attachments
+- changeSet:
+    id: 1788264049099-3
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: categoriesPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: name
+            type: VARCHAR(150)
+        - column:
+            constraints:
+              nullable: false
+            name: slug
+            type: VARCHAR(190)
+        - column:
+            constraints:
+              nullable: false
+            name: updated_at
+            type: datetime(6)
+        tableName: categories
+- changeSet:
+    id: 1788264049099-4
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: customersPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: email
+            type: VARCHAR(190)
+        - column:
+            constraints:
+              nullable: false
+            name: name
+            type: VARCHAR(150)
+        - column:
+            constraints:
+              nullable: false
+            name: status
+            type: ENUM('ACTIVE', 'PASSIVE')
+        - column:
+            constraints:
+              nullable: false
+            name: updated_at
+            type: datetime(6)
+        tableName: customers
+- changeSet:
+    id: 1788264049099-5
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: order_itemsPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: discount_total
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: line_total
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: product_name
+            type: VARCHAR(190)
+        - column:
+            constraints:
+              nullable: false
+            name: quantity
+            type: INT
+        - column:
+            constraints:
+              nullable: false
+            name: sku
+            type: VARCHAR(100)
+        - column:
+            constraints:
+              nullable: false
+            name: unit_price
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: order_id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: product_id
+            type: BIGINT
+        tableName: order_items
+- changeSet:
+    id: 1788264049099-6
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: order_status_historiesPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: new_status
+            type: ENUM('CANCELLED', 'CONFIRMED', 'FAILED', 'PENDING', 'PROCESSING')
+        - column:
+            name: previous_status
+            type: ENUM('CANCELLED', 'CONFIRMED', 'FAILED', 'PENDING', 'PROCESSING')
+        - column:
+            name: reason
+            type: VARCHAR(500)
+        - column:
+            constraints:
+              nullable: false
+            name: order_id
+            type: BIGINT
+        tableName: order_status_histories
+- changeSet:
+    id: 1788264049099-7
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: ordersPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: currency
+            type: CHAR(3)
+        - column:
+            constraints:
+              nullable: false
+            name: discount_total
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: grand_total
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: order_no
+            type: VARCHAR(50)
+        - column:
+            constraints:
+              nullable: false
+            name: shipping_total
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: status
+            type: ENUM('CANCELLED', 'CONFIRMED', 'FAILED', 'PENDING', 'PROCESSING')
+        - column:
+            constraints:
+              nullable: false
+            name: subtotal
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: updated_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: customer_id
+            type: BIGINT
+        tableName: orders
+- changeSet:
+    id: 1788264049099-8
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: outbox_eventsPK
+            name: id
+            type: CHAR(36)
+        - column:
+            constraints:
+              nullable: false
+            name: aggregate_id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: aggregate_type
+            type: VARCHAR(100)
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: event_type
+            type: VARCHAR(150)
+        - column:
+            constraints:
+              nullable: false
+            name: payload
+            type: JSON
+        - column:
+            name: published_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: retry_count
+            type: INT
+        - column:
+            constraints:
+              nullable: false
+            name: status
+            type: ENUM('FAILED', 'PENDING', 'PUBLISHED')
+        tableName: outbox_events
+- changeSet:
+    id: 1788264049099-9
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: paymentsPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: amount
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            name: failure_reason
+            type: VARCHAR(500)
+        - column:
+            constraints:
+              nullable: false
+            name: method
+            type: ENUM('BANK_TRANSFER', 'CASH_ON_DELIVERY', 'CREDIT_CARD')
+        - column:
+            name: paid_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: payment_no
+            type: VARCHAR(50)
+        - column:
+            constraints:
+              nullable: false
+            name: provider
+            type: VARCHAR(50)
+        - column:
+            constraints:
+              nullable: false
+            name: status
+            type: ENUM('COMPLETED', 'FAILED', 'PENDING', 'PROCESSING', 'REFUNDED')
+        - column:
+            name: transaction_id
+            type: VARCHAR(190)
+        - column:
+            constraints:
+              nullable: false
+            name: updated_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: order_id
+            type: BIGINT
+        tableName: payments
+- changeSet:
+    id: 1788264049099-10
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: productsPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: name
+            type: VARCHAR(190)
+        - column:
+            constraints:
+              nullable: false
+            name: price
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: sku
+            type: VARCHAR(100)
+        - column:
+            constraints:
+              nullable: false
+            name: status
+            type: ENUM('ACTIVE', 'PASSIVE')
+        - column:
+            constraints:
+              nullable: false
+            name: stock
+            type: INT
+        - column:
+            constraints:
+              nullable: false
+            name: updated_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: category_id
+            type: BIGINT
+        tableName: products
+- changeSet:
+    id: 1788264049099-11
+    author: berker (generated)
+    changes:
+    - createTable:
+        columns:
+        - column:
+            autoIncrement: true
+            constraints:
+              nullable: false
+              primaryKey: true
+              primaryKeyName: shipmentsPK
+            name: id
+            type: BIGINT
+        - column:
+            constraints:
+              nullable: false
+            name: created_at
+            type: datetime(6)
+        - column:
+            name: delivered_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: provider
+            type: VARCHAR(50)
+        - column:
+            name: shipped_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: shipping_cost
+            type: DECIMAL(12, 2)
+        - column:
+            constraints:
+              nullable: false
+            name: status
+            type: ENUM('DELIVERED', 'FAILED', 'PENDING', 'PREPARING', 'SHIPPED')
+        - column:
+            name: tracking_number
+            type: VARCHAR(100)
+        - column:
+            constraints:
+              nullable: false
+            name: updated_at
+            type: datetime(6)
+        - column:
+            constraints:
+              nullable: false
+            name: order_id
+            type: BIGINT
+        tableName: shipments
+- changeSet:
+    id: 1788264049099-12
+    author: berker (generated)
+    changes:
+    - addUniqueConstraint:
+        columnNames: slug
+        constraintName: uk_categories_slug
+        tableName: categories
+- changeSet:
+    id: 1788264049099-13
+    author: berker (generated)
+    changes:
+    - addUniqueConstraint:
+        columnNames: email
+        constraintName: uk_customers_email
+        tableName: customers
+- changeSet:
+    id: 1788264049099-14
+    author: berker (generated)
+    changes:
+    - addUniqueConstraint:
+        columnNames: order_no
+        constraintName: uk_orders_order_no
+        tableName: orders
+- changeSet:
+    id: 1788264049099-15
+    author: berker (generated)
+    changes:
+    - addUniqueConstraint:
+        columnNames: payment_no
+        constraintName: uk_payments_payment_no
+        tableName: payments
+- changeSet:
+    id: 1788264049099-16
+    author: berker (generated)
+    changes:
+    - addUniqueConstraint:
+        columnNames: sku
+        constraintName: uk_products_sku
+        tableName: products
+- changeSet:
+    id: 1788264049099-17
+    author: berker (generated)
+    changes:
+    - createIndex:
+        associatedWith: ''
+        columns:
+        - column:
+            name: addressable_type
+        - column:
+            name: addressable_id
+        indexName: idx_addresses_addressable
+        tableName: addresses
+- changeSet:
+    id: 1788264049099-18
+    author: berker (generated)
+    changes:
+    - createIndex:
+        associatedWith: ''
+        columns:
+        - column:
+            name: attachable_type
+        - column:
+            name: attachable_id
+        indexName: idx_attachments_attachable
+        tableName: attachments
+- changeSet:
+    id: 1788264049099-19
+    author: berker (generated)
+    changes:
+    - addForeignKeyConstraint:
+        baseColumnNames: order_id
+        baseTableName: payments
+        constraintName: FK81gagumt0r8y3rmudcgpbk42l
+        deferrable: false
+        initiallyDeferred: false
+        referencedColumnNames: id
+        referencedTableName: orders
+        validate: true
+- changeSet:
+    id: 1788264049099-20
+    author: berker (generated)
+    changes:
+    - addForeignKeyConstraint:
+        baseColumnNames: order_id
+        baseTableName: order_items
+        constraintName: FKbioxgbv59vetrxe0ejfubep1w
+        deferrable: false
+        initiallyDeferred: false
+        referencedColumnNames: id
+        referencedTableName: orders
+        validate: true
+- changeSet:
+    id: 1788264049099-21
+    author: berker (generated)
+    changes:
+    - addForeignKeyConstraint:
+        baseColumnNames: order_id
+        baseTableName: order_status_histories
+        constraintName: FKgair3047h1rin6u8y0fvc1fg5
+        deferrable: false
+        initiallyDeferred: false
+        referencedColumnNames: id
+        referencedTableName: orders
+        validate: true
+- changeSet:
+    id: 1788264049099-22
+    author: berker (generated)
+    changes:
+    - addForeignKeyConstraint:
+        baseColumnNames: product_id
+        baseTableName: order_items
+        constraintName: FKocimc7dtr037rh4ls4l95nlfi
+        deferrable: false
+        initiallyDeferred: false
+        referencedColumnNames: id
+        referencedTableName: products
+        validate: true
+- changeSet:
+    id: 1788264049099-23
+    author: berker (generated)
+    changes:
+    - addForeignKeyConstraint:
+        baseColumnNames: category_id
+        baseTableName: products
+        constraintName: FKog2rp4qthbtt2lfyhfo32lsw9
+        deferrable: false
+        initiallyDeferred: false
+        referencedColumnNames: id
+        referencedTableName: categories
+        validate: true
+- changeSet:
+    id: 1788264049099-24
+    author: berker (generated)
+    changes:
+    - addForeignKeyConstraint:
+        baseColumnNames: customer_id
+        baseTableName: orders
+        constraintName: FKpxtb8awmi0dk6smoh2vp1litg
+        deferrable: false
+        initiallyDeferred: false
+        referencedColumnNames: id
+        referencedTableName: customers
+        validate: true
+- changeSet:
+    id: 1788264049099-25
+    author: berker (generated)
+    changes:
+    - addForeignKeyConstraint:
+        baseColumnNames: order_id
+        baseTableName: shipments
+        constraintName: FKrnt4wht95lxxplspltrg9681s
+        deferrable: false
+        initiallyDeferred: false
+        referencedColumnNames: id
+        referencedTableName: orders
+        validate: true
+
+- changeSet:
+    id: 1788264473877-1
+    author: berker (generated)
+    changes:
+    - addColumn:
+        columns:
+        - column:
+            constraints:
+              nullable: false
+            name: is_active
+            type: BIT
+        tableName: categories
