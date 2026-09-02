@@ -51,3 +51,6 @@ build/
 ### Postman local workspace ###
 .postman/
 postman/
+
+V1__create_initial_schema.sql
+ROADMAP.md
