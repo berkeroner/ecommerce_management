@@ -47,3 +47,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Postman local workspace ###
+.postman/
+postman/
