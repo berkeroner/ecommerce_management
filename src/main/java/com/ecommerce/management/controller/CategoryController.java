@@ -20,7 +20,7 @@ import com.ecommerce.management.service.CategoryService;
 import jakarta.validation.Valid;
 
 @RestController
-@RequestMapping("/api/categories")
+@RequestMapping("/api/v1/categories")
 public class CategoryController {
 
     private final CategoryService categoryService;
@@ -43,7 +43,7 @@ public class CategoryController {
     public ResponseEntity<CategoryResponse> create(@Valid @RequestBody CategoryRequest request) {
         CategoryResponse category = categoryService.create(request);
         return ResponseEntity
-                .created(URI.create("/api/categories/" + category.id()))
+                .created(URI.create("/api/v1/categories/" + category.id()))
                 .body(category);
     }
 
