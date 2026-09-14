@@ -1,2 +1,11 @@
 package com.ecommerce.management.entity.enums;
-public enum ShipmentStatus { PENDING, PREPARING, SHIPPED, DELIVERED, FAILED }
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public enum ShipmentStatus {
+    @JsonProperty("pending") PENDING,
+    @JsonProperty("preparing") PREPARING,
+    @JsonProperty("shipped") SHIPPED,
+    @JsonProperty("delivered") DELIVERED,
+    @JsonProperty("failed") FAILED
+}

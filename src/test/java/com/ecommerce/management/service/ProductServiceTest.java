@@ -40,6 +40,127 @@ class ProductServiceTest {
     private ProductService productService;
 
     @Test
+    void shouldApplyEveryAllowedSortWithIdTieBreaker() {
+        for (String field : new String[] {"price", "name", "created_at"}) {
+            for (String direction : new String[] {"asc", "desc"}) {
+                String property = field.equals("created_at") ? "createdAt" : field;
+                var sorting = org.springframework.data.domain.Sort.by(
+                        org.springframework.data.domain.Sort.Direction.fromString(direction), property)
+                        .and(org.springframework.data.domain.Sort.by("id"));
+                var pageable = org.springframework.data.domain.PageRequest.of(0, 5, sorting);
+                when(productRepository.search(2L, RecordStatus.ACTIVE, "lap", pageable))
+                        .thenReturn(org.springframework.data.domain.Page.empty(pageable));
+                productService.findAll(1, 5, 2L, "active", "lap", field + "," + direction);
+                org.mockito.Mockito.verify(productRepository).search(2L, RecordStatus.ACTIVE, "lap", pageable);
+            }
+        }
+    }
+
+    @Test
+    void shouldRejectInvalidSortBeforeQuerying() {
+        for (String sort : new String[] {"", "price", "price,", "price,up", "unknown,asc",
+                "createdAt,asc", "price,asc,id", "name,DESC"}) {
+            var error = assertThrows(ResponseStatusException.class,
+                    () -> productService.findAll(1, 20, null, null, null, sort));
+            assertEquals(422, error.getStatusCode().value());
+        }
+        org.mockito.Mockito.verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    void shouldNormalizeSearchAndPreserveOtherFilters() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 5,
+                org.springframework.data.domain.Sort.by("id"));
+        when(productRepository.search(2L, RecordStatus.ACTIVE, "laptop", pageable))
+                .thenReturn(org.springframework.data.domain.Page.empty(pageable));
+        assertEquals(0, productService.findAll(1, 5, 2L, "active", " LAPTOP ", null).totalElements());
+        org.mockito.Mockito.verify(productRepository).search(2L, RecordStatus.ACTIVE, "laptop", pageable);
+        org.mockito.Mockito.verifyNoMoreInteractions(productRepository);
+    }
+
+    @Test
+    void shouldIgnoreBlankSearch() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 5,
+                org.springframework.data.domain.Sort.by("id"));
+        when(productRepository.findAll(pageable)).thenReturn(org.springframework.data.domain.Page.empty(pageable));
+        productService.findAll(1, 5, null, null, "   ", null);
+        org.mockito.Mockito.verify(productRepository).findAll(pageable);
+        org.mockito.Mockito.verifyNoMoreInteractions(productRepository);
+    }
+
+    @Test
+    void shouldFilterByStatusAloneAndTogetherWithCategory() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 5,
+                org.springframework.data.domain.Sort.by("id"));
+        when(productRepository.findAllByStatus(RecordStatus.ACTIVE, pageable))
+                .thenReturn(org.springframework.data.domain.Page.empty(pageable));
+        when(productRepository.findAllByCategoryIdAndStatus(2L, RecordStatus.PASSIVE, pageable))
+                .thenReturn(org.springframework.data.domain.Page.empty(pageable));
+        assertEquals(0, productService.findAll(1, 5, null, "active", null, null).totalElements());
+        assertEquals(0, productService.findAll(1, 5, 2L, "passive", null, null).totalElements());
+        org.mockito.Mockito.verify(productRepository).findAllByStatus(RecordStatus.ACTIVE, pageable);
+        org.mockito.Mockito.verify(productRepository).findAllByCategoryIdAndStatus(2L, RecordStatus.PASSIVE, pageable);
+        org.mockito.Mockito.verifyNoMoreInteractions(productRepository);
+    }
+
+    @Test
+    void shouldRejectInvalidStatusBeforeQuerying() {
+        for (String status : new String[] {"", "ACTIVE", "unknown", " active "}) {
+            var error = assertThrows(ResponseStatusException.class,
+                    () -> productService.findAll(1, 20, null, status, null, null));
+            assertEquals(422, error.getStatusCode().value());
+        }
+        org.mockito.Mockito.verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    void shouldUseCategoryQueryAndReturnFilteredTotals() {
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 5,
+                org.springframework.data.domain.Sort.by("id"));
+        when(productRepository.findAllByCategoryId(2L, pageable)).thenReturn(
+                new org.springframework.data.domain.PageImpl<>(java.util.List.of(), pageable, 0));
+        var result = productService.findAll(1, 5, 2L, null, null, null);
+        assertEquals(0, result.totalElements());
+        assertEquals(0, result.totalPages());
+        org.mockito.Mockito.verify(productRepository).findAllByCategoryId(2L, pageable);
+        org.mockito.Mockito.verifyNoMoreInteractions(productRepository);
+    }
+
+    @Test
+    void shouldRejectNonPositiveCategoryId() {
+        for (long id : new long[] {0, -1}) {
+            var error = assertThrows(ResponseStatusException.class,
+                    () -> productService.findAll(1, 20, id, null, null, null));
+            assertEquals(422, error.getStatusCode().value());
+        }
+        org.mockito.Mockito.verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    void shouldTranslateOneBasedPageAndPreserveTotalsForEmptyPage() {
+        var pageable = org.springframework.data.domain.PageRequest.of(2, 5,
+                org.springframework.data.domain.Sort.by("id"));
+        when(productRepository.findAll(pageable)).thenReturn(
+                new org.springframework.data.domain.PageImpl<>(java.util.List.of(), pageable, 7));
+        var result = productService.findAll(3, 5, null, null, null, null);
+        assertEquals(3, result.page());
+        assertEquals(5, result.limit());
+        assertEquals(7, result.totalElements());
+        assertEquals(2, result.totalPages());
+        assertEquals(java.util.List.of(), result.data());
+    }
+
+    @Test
+    void shouldRejectInvalidPaginationBeforeQuerying() {
+        for (int[] values : new int[][] {{0, 20}, {-1, 20}, {1, 0}, {1, -1}, {1, 101}}) {
+            var error = assertThrows(ResponseStatusException.class,
+                    () -> productService.findAll(values[0], values[1], null, null, null, null));
+            assertEquals(422, error.getStatusCode().value());
+        }
+        org.mockito.Mockito.verifyNoInteractions(productRepository);
+    }
+
+    @Test
     void shouldCreateActiveProductAndNormalizeSku() {
         Category category = category(1L, "Bilgisayar");
         ProductRequest request = new ProductRequest(

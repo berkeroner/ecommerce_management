@@ -2,7 +2,9 @@ package com.ecommerce.management.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
+import com.ecommerce.management.dto.common.PageResponse;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import java.util.Locale;
 
 import org.springframework.http.HttpStatus;
@@ -32,10 +34,39 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public List<ProductResponse> findAll() {
-        return productRepository.findAll().stream()
-                .map(this::toResponse)
-                .toList();
+    public PageResponse<ProductResponse> findAll(int page, int limit, Long categoryId, String status, String search, String sort) {
+        if (page < 1 || limit < 1 || limit > 100) {
+            throw new ResponseStatusException(HttpStatus.valueOf(422),
+                    "page must be at least 1 and limit must be between 1 and 100");
+        }
+        if (categoryId != null && categoryId < 1) {
+            throw new ResponseStatusException(HttpStatus.valueOf(422), "category_id must be positive");
+        }
+        RecordStatus recordStatus = null;
+        if (status != null) {
+            recordStatus = switch (status) {
+                case "active" -> RecordStatus.ACTIVE;
+                case "passive" -> RecordStatus.PASSIVE;
+                default -> throw new ResponseStatusException(HttpStatus.valueOf(422),
+                        "status must be active or passive");
+            };
+        }
+        var pageable = PageRequest.of(page - 1, limit, parseSort(sort));
+        org.springframework.data.domain.Page<Product> products;
+        String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        if (!term.isEmpty()) {
+            products = productRepository.search(categoryId, recordStatus, term, pageable);
+        } else if (categoryId != null && recordStatus != null) {
+            products = productRepository.findAllByCategoryIdAndStatus(categoryId, recordStatus, pageable);
+        } else if (categoryId != null) {
+            products = productRepository.findAllByCategoryId(categoryId, pageable);
+        } else if (recordStatus != null) {
+            products = productRepository.findAllByStatus(recordStatus, pageable);
+        } else {
+            products = productRepository.findAll(pageable);
+        }
+        return new PageResponse<>(products.getContent().stream().map(this::toResponse).toList(),
+                page, limit, products.getTotalElements(), products.getTotalPages());
     }
 
     @Transactional(readOnly = true)
@@ -103,6 +134,31 @@ public class ProductService {
         product.setUpdatedAt(LocalDateTime.now());
 
         return toResponse(productRepository.save(product));
+    }
+
+    private Sort parseSort(String sort) {
+        if (sort == null) {
+            return Sort.by("id");
+        }
+        String[] parts = sort.split(",", -1);
+        if (parts.length != 2) {
+            throw new ResponseStatusException(HttpStatus.valueOf(422),
+                    "sort must use field,direction format, for example price,asc");
+        }
+        String property = switch (parts[0]) {
+            case "price" -> "price";
+            case "name" -> "name";
+            case "created_at" -> "createdAt";
+            default -> throw new ResponseStatusException(HttpStatus.valueOf(422),
+                    "sort field must be price, name or created_at");
+        };
+        Sort.Direction direction = switch (parts[1]) {
+            case "asc" -> Sort.Direction.ASC;
+            case "desc" -> Sort.Direction.DESC;
+            default -> throw new ResponseStatusException(HttpStatus.valueOf(422),
+                    "sort direction must be asc or desc");
+        };
+        return Sort.by(direction, property).and(Sort.by("id"));
     }
 
     private Product getProduct(Long id) {

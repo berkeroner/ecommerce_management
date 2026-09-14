@@ -1,2 +1,9 @@
 package com.ecommerce.management.entity.enums;
-public enum AttachableType { PRODUCT, ORDER, PAYMENT }
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public enum AttachableType {
+    @JsonProperty("product") PRODUCT,
+    @JsonProperty("order") ORDER,
+    @JsonProperty("payment") PAYMENT
+}

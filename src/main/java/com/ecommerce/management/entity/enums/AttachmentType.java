@@ -1,2 +1,9 @@
 package com.ecommerce.management.entity.enums;
-public enum AttachmentType { IMAGE, INVOICE, RECEIPT }
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public enum AttachmentType {
+    @JsonProperty("image") IMAGE,
+    @JsonProperty("invoice") INVOICE,
+    @JsonProperty("receipt") RECEIPT
+}

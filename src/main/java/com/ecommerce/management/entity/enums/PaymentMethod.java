@@ -1,2 +1,9 @@
 package com.ecommerce.management.entity.enums;
-public enum PaymentMethod { CREDIT_CARD, BANK_TRANSFER, CASH_ON_DELIVERY }
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public enum PaymentMethod {
+    @JsonProperty("credit_card") CREDIT_CARD,
+    @JsonProperty("bank_transfer") BANK_TRANSFER,
+    @JsonProperty("cash_on_delivery") CASH_ON_DELIVERY
+}

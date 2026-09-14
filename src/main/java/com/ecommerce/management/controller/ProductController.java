@@ -1,7 +1,8 @@
 package com.ecommerce.management.controller;
 
 import java.net.URI;
-import java.util.List;
+import com.ecommerce.management.dto.common.PageResponse;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,8 +33,14 @@ public class ProductController {
     }
 
     @GetMapping
-    public List<ProductResponse> findAll() {
-        return productService.findAll();
+    public PageResponse<ProductResponse> findAll(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(name = "category_id", required = false) Long categoryId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String sort) {
+        return productService.findAll(page, limit, categoryId, status, search, sort);
     }
 
     @GetMapping("/{id}")

@@ -1,2 +1,8 @@
 package com.ecommerce.management.entity.enums;
-public enum AddressableType { CUSTOMER, ORDER }
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public enum AddressableType {
+    @JsonProperty("customer") CUSTOMER,
+    @JsonProperty("order") ORDER
+}
