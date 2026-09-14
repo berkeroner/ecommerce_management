@@ -1,2 +1,8 @@
 package com.ecommerce.management.entity.enums;
-public enum AddressType { BILLING, SHIPPING }
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public enum AddressType {
+    @JsonProperty("billing") BILLING,
+    @JsonProperty("shipping") SHIPPING
+}

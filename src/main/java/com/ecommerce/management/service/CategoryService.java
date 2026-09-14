@@ -12,14 +12,19 @@ import com.ecommerce.management.dto.category.CategoryRequest;
 import com.ecommerce.management.dto.category.CategoryResponse;
 import com.ecommerce.management.entity.Category;
 import com.ecommerce.management.repository.CategoryRepository;
+import com.ecommerce.management.repository.ProductRepository;
 
 @Service
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final ProductRepository productRepository;
 
-    public CategoryService(CategoryRepository categoryRepository) {
+    public CategoryService(
+            CategoryRepository categoryRepository,
+            ProductRepository productRepository) {
         this.categoryRepository = categoryRepository;
+        this.productRepository = productRepository;
     }
 
     @Transactional(readOnly = true)
@@ -67,6 +72,13 @@ public class CategoryService {
     @Transactional
     public void delete(Long id) {
         Category category = getCategory(id);
+
+        if (productRepository.existsByCategoryId(id)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Category cannot be deleted because it has products: " + id);
+        }
+
         categoryRepository.delete(category);
     }
 

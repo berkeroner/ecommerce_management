@@ -1,2 +1,8 @@
 package com.ecommerce.management.entity.enums;
-public enum RecordStatus { ACTIVE, PASSIVE }
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public enum RecordStatus {
+    @JsonProperty("active") ACTIVE,
+    @JsonProperty("passive") PASSIVE
+}
