@@ -591,3 +591,44 @@ Desteklenecek parametreler:
   alınması
 
 - API authentication ve role-based authorization eklenmesi
+
+
+## Yerel environment yapılandırması
+
+Uygulama ve Liquibase Maven eklentisi bağlantı bilgilerini environment
+değişkenlerinden alır. Compose da aynı MySQL/RabbitMQ kullanıcı ve şifre
+değişkenlerini kullanır. Gerçek şifreler repoya eklenmez.
+
+1. `cp .env.example .env` komutuyla yerel dosyanı oluştur.
+2. `.env` içindeki üç boş şifreyi doldur. Dosya Git tarafından ignore edilir.
+   Boşluk veya özel karakter içeren değerleri tek tırnak içine al.
+3. Altyapıyı `docker compose up -d` ile başlat. Compose `.env` dosyasını otomatik okur.
+4. Java uygulamasını terminalden çalıştırmak için değişkenleri yükle:
+
+```bash
+set -a
+source .env
+set +a
+./mvnw spring-boot:run
+```
+
+Spring Boot ve Maven `.env` dosyasını kendiliğinden okumaz. IDE'den çalıştırırken
+aynı değişkenleri Java run configuration'ın environment alanına gir veya IDE'nin
+desteklediği env-file ayarını kullan. Liquibase Maven komutlarını da değişkenleri
+yüklediğin terminalden çalıştır.
+
+Örnek dosyadaki host/port değerleri Java'nın bilgisayarında, MySQL/Redis/RabbitMQ'nun
+Docker'da çalıştığı düzen içindir. MySQL portunu/veritabanı adını değiştirirsen
+`ECOMMERCE_DB_URL` değerini de eşleştir. Eksik zorunlu ayarlar için kaynak kodda
+varsayılan bağlantı/şifre bulunmaz.
+
+Mevcut Docker volume'larında kullanıcı ve şifreler zaten oluşturulmuş olabilir.
+`.env` dosyasına mevcut geçerli bilgileri gir; environment değerini değiştirmek
+mevcut veritabanı kullanıcısının şifresini değiştirmez. Veri volume'larını silme.
+
+Testler `application-test.properties` üzerinden H2 ve yalnızca teste özel
+ayarlarla çalışır; `.env` gerektirmez:
+
+```bash
+./mvnw clean test
+```

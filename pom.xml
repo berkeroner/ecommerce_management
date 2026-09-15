@@ -130,9 +130,9 @@
                         src/main/resources/db/changelog/db.changelog-master.yaml
                     </changeLogFile>
 
-                    <url>jdbc:mysql://localhost:3307/ecommerce_management</url>
-                    <username>ecommerce</username>
-                    <password>ecommerce_password</password>
+                    <url>${env.ECOMMERCE_DB_URL}</url>
+                    <username>${env.ECOMMERCE_DB_USERNAME}</username>
+                    <password>${env.ECOMMERCE_DB_PASSWORD}</password>
 
                     <referenceUrl>
                         hibernate:spring:com.ecommerce.management.entity?dialect=org.hibernate.dialect.MySQLDialect
