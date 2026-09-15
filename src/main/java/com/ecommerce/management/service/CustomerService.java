@@ -1,7 +1,9 @@
 package com.ecommerce.management.service;
 
 import java.time.LocalDateTime;
-import java.util.List;
+import com.ecommerce.management.dto.common.PageResponse;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import java.util.Locale;
 
 import org.springframework.http.HttpStatus;
@@ -25,10 +27,32 @@ public class CustomerService {
     }
 
     @Transactional(readOnly = true)
-    public List<CustomerResponse> findAll() {
-        return customerRepository.findAll().stream()
-                .map(this::toResponse)
-                .toList();
+    public PageResponse<CustomerResponse> findAll(int page, int limit, String status, String search) {
+        if (page < 1 || limit < 1 || limit > 100) {
+            throw new ResponseStatusException(HttpStatus.valueOf(422),
+                    "page must be at least 1 and limit must be between 1 and 100");
+        }
+        RecordStatus recordStatus = null;
+        if (status != null) {
+            recordStatus = switch (status) {
+                case "active" -> RecordStatus.ACTIVE;
+                case "passive" -> RecordStatus.PASSIVE;
+                default -> throw new ResponseStatusException(HttpStatus.valueOf(422),
+                        "status must be active or passive");
+            };
+        }
+        String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        var pageable = PageRequest.of(page - 1, limit, Sort.by("id"));
+        org.springframework.data.domain.Page<Customer> customers;
+        if (!term.isEmpty()) {
+            customers = customerRepository.search(recordStatus, term, pageable);
+        } else if (recordStatus != null) {
+            customers = customerRepository.findAllByStatus(recordStatus, pageable);
+        } else {
+            customers = customerRepository.findAll(pageable);
+        }
+        return new PageResponse<>(customers.getContent().stream().map(this::toResponse).toList(),
+                page, limit, customers.getTotalElements(), customers.getTotalPages());
     }
 
     @Transactional(readOnly = true)
