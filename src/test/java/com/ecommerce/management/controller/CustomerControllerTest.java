@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDateTime;
 import java.util.List;
+import com.ecommerce.management.dto.common.PageResponse;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,10 +34,10 @@ class CustomerControllerTest {
 
     @Test
     void shouldListCustomers() throws Exception {
-        when(customerService.findAll()).thenReturn(List.of(response()));
+        when(customerService.findAll(1, 20, null, null)).thenReturn(new PageResponse<>(List.of(response()), 1, 20, 1, 1));
         mockMvc.perform(get("/api/v1/customers"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].email").value("ada@example.com"));
+                .andExpect(jsonPath("$.data[0].email").value("ada@example.com"));
     }
 
     @Test
@@ -82,6 +83,38 @@ class CustomerControllerTest {
                         .content("{\"status\":\"passive\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("passive"));
+    }
+
+    @Test
+    void shouldReturnRequestedPageAndSnakeCaseMetadata() throws Exception {
+        when(customerService.findAll(2, 5, null, null)).thenReturn(new PageResponse<>(List.of(response()), 2, 5, 6, 2));
+        mockMvc.perform(get("/api/v1/customers").param("page", "2").param("limit", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(2))
+                .andExpect(jsonPath("$.limit").value(5))
+                .andExpect(jsonPath("$.total_elements").value(6))
+                .andExpect(jsonPath("$.total_pages").value(2));
+    }
+
+    @Test
+    void shouldRejectNonNumericPagination() throws Exception {
+        for (String parameter : List.of("page", "limit")) {
+            mockMvc.perform(get("/api/v1/customers").param(parameter, "abc"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+        }
+        org.mockito.Mockito.verifyNoInteractions(customerService);
+    }
+
+    @Test
+    void shouldPassFiltersAlongsidePagination() throws Exception {
+        when(customerService.findAll(2, 5, "active", "ada")).thenReturn(
+                new PageResponse<>(List.of(response()), 2, 5, 6, 2));
+        mockMvc.perform(get("/api/v1/customers").param("page", "2").param("limit", "5")
+                        .param("status", "active").param("search", "ada"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].status").value("active"))
+                .andExpect(jsonPath("$.total_elements").value(6));
     }
 
     private CustomerResponse response() { return response(RecordStatus.ACTIVE); }
