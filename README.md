@@ -593,6 +593,32 @@ Desteklenecek parametreler:
 - API authentication ve role-based authorization eklenmesi
 
 
+## Swagger / OpenAPI
+
+OpenAPI, endpointlerin parametrelerini, istek/yanıt modellerini ve HTTP işlemlerini
+tanımlayan standarttır. Swagger UI bu dokümanı tarayıcıda gösterir ve API'ye
+istek göndermeni sağlar. Bu projede `springdoc-openapi-starter-webmvc-ui:3.1.1`
+controller ve DTO'lardan dokümanı otomatik üretir (Spring Boot 4 için springdoc 3.x).
+
+Uygulama çalışırken:
+
+- Swagger UI: http://localhost:8080/swagger-ui.html
+- OpenAPI JSON: http://localhost:8080/v3/api-docs
+
+Örneğin Swagger UI'da `GET /api/v1/products` işlemini aç, **Try it out** seç,
+parametreleri gir ve **Execute** ile isteği gönder. Yanıt kodunu ve JSON gövdesini
+aynı ekranda görebilirsin. POST/PUT/PATCH/DELETE işlemleri gerçek verileri değiştirir.
+
+Kurulumun temel adımı `pom.xml` dosyasına springdoc bağımlılığını eklemektir.
+`OpenApiConfig` başlık, sürüm ve açıklamayı belirler; `springdoc.paths-to-match`
+dokümana `/api/v1/**` endpointlerini dahil eder. Temel doküman için controller'lara
+ek annotation gerekmez. Daha ayrıntılı açıklamalar için `@Tag` (gruplama),
+`@Operation` (işlem açıklaması), `@ApiResponse` (yanıt kodu/modeli) ve
+`@Schema` (alan açıklaması/örneği) kullanılabilir. Otomatik dokümanı gerçek API
+davranışıyla karşılaştırmak gerekir; özellikle özel hata kodları ek açıklama isteyebilir.
+
+Resmi kurulum: https://springdoc.org/getting-started.html
+
 ## Yerel environment yapılandırması
 
 ### Geliştirme için seed data
