@@ -16,6 +16,11 @@ application-local.yaml
 *.log
 logs/
 
+### Java local outputs and diagnostics ###
+*.class
+*.hprof
+*.jfr
+
 ### Operating system ###
 .DS_Store
 Thumbs.db
@@ -52,5 +57,6 @@ build/
 .postman/
 postman/
 
-V1__create_initial_schema.sql
-ROADMAP.md
+### Local notes and obsolete schema export ###
+/V1__create_initial_schema.sql
+/ROADMAP.md
