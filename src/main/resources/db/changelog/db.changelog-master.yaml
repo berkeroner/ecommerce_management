@@ -3,3 +3,6 @@ databaseChangeLog:
       path: changes
       relativeToChangelogFile: true
       endsWithFilter: .yaml
+  - include:
+      file: seed/realistic-seed.yaml
+      relativeToChangelogFile: true

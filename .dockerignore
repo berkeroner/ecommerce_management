@@ -1,0 +1,16 @@
+.git
+target
+.env
+.env.*
+.DS_Store
+.vscode
+.idea
+*.log
+*.hprof
+*.jfr
+logs
+.postman
+postman
+**/application-local.properties
+**/application-local.yml
+**/application-local.yaml
