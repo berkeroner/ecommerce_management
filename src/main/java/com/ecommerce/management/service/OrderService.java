@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -30,6 +31,7 @@ import com.ecommerce.management.entity.enums.AddressType;
 import com.ecommerce.management.entity.enums.AddressableType;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.OutboxStatus;
+import com.ecommerce.management.entity.enums.PaymentStatus;
 import com.ecommerce.management.entity.enums.RecordStatus;
 import com.ecommerce.management.repository.AddressRepository;
 import com.ecommerce.management.repository.CustomerRepository;
@@ -37,6 +39,7 @@ import com.ecommerce.management.repository.OrderItemRepository;
 import com.ecommerce.management.repository.OrderRepository;
 import com.ecommerce.management.repository.OrderStatusHistoryRepository;
 import com.ecommerce.management.repository.OutboxEventRepository;
+import com.ecommerce.management.repository.PaymentRepository;
 import com.ecommerce.management.repository.ProductRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -48,10 +51,18 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class OrderService {
 
+    private static final EnumSet<OrderStatus> CANCELLABLE_STATUSES = EnumSet.of(
+            OrderStatus.PENDING,
+            OrderStatus.PROCESSING,
+            OrderStatus.CONFIRMED
+    );
+    private static final String CANCELLATION_REASON = "Order cancelled by request";
+
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final OutboxEventRepository outboxEventRepository;
+    private final PaymentRepository paymentRepository;
 
     private final CustomerRepository customerRepository;
     private final ProductRepository productRepository;
@@ -205,6 +216,60 @@ public class OrderService {
         return new OrderStatusResponse(order.getId(), order.getStatus());
     }
 
+    @Transactional
+    public OrderResponse cancelOrder(Long id) {
+        Order order = orderRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Order not found: " + id
+                ));
+
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            return toResponse(order);
+        }
+
+        if (!CANCELLABLE_STATUSES.contains(order.getStatus())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Order cannot be cancelled from status: " + order.getStatus()
+            );
+        }
+
+        if (paymentRepository.existsByOrderIdAndStatusIn(
+                id, EnumSet.of(PaymentStatus.COMPLETED))) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Completed payment must be refunded before cancellation"
+            );
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        OrderStatus previousStatus = order.getStatus();
+
+        orderItemRepository.findAllByOrderId(id).forEach(item -> {
+            int updated = productRepository.releaseStock(
+                    item.getProduct().getId(),
+                    item.getQuantity(),
+                    now
+            );
+            if (updated != 1) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Stock could not be restored for product: " + item.getProduct().getId()
+                );
+            }
+        });
+
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setUpdatedAt(now);
+        orderRepository.save(order);
+
+        saveCancellationHistory(order, previousStatus, now);
+        saveCancelledEvent(order, previousStatus, now);
+
+        return toResponse(order);
+    }
+
     private void saveShippingAddress(
             Order order,
             OrderShippingAddressRequest request,
@@ -277,6 +342,61 @@ public class OrderService {
         event.setAggregateType("order");
         event.setAggregateId(order.getId());
         event.setEventType("order.created");
+        event.setPayload(objectMapper.writeValueAsString(envelope));
+        event.setStatus(OutboxStatus.PENDING);
+        event.setRetryCount(0);
+        event.setCreatedAt(now);
+
+        outboxEventRepository.save(event);
+    }
+
+    private void saveCancellationHistory(
+            Order order,
+            OrderStatus previousStatus,
+            LocalDateTime now
+    ) {
+        OrderStatusHistory history = new OrderStatusHistory();
+        history.setOrder(order);
+        history.setPreviousStatus(previousStatus);
+        history.setNewStatus(OrderStatus.CANCELLED);
+        history.setReason(CANCELLATION_REASON);
+        history.setCreatedAt(now);
+
+        orderStatusHistoryRepository.save(history);
+    }
+
+    private void saveCancelledEvent(
+            Order order,
+            OrderStatus previousStatus,
+            LocalDateTime now
+    ) {
+        UUID eventId = UUID.randomUUID();
+
+        String correlationId = MDC.get("correlation_id");
+        if (correlationId == null) {
+            correlationId = UUID.randomUUID().toString();
+        }
+
+        var data = Map.of(
+                "order_id", order.getId(),
+                "customer_id", order.getCustomer().getId(),
+                "previous_status", previousStatus,
+                "reason", CANCELLATION_REASON
+        );
+
+        var envelope = Map.of(
+                "event_id", eventId.toString(),
+                "event_type", "order.cancelled",
+                "occurred_at", Instant.now().toString(),
+                "correlation_id", correlationId,
+                "data", data
+        );
+
+        OutboxEvent event = new OutboxEvent();
+        event.setId(eventId);
+        event.setAggregateType("order");
+        event.setAggregateId(order.getId());
+        event.setEventType("order.cancelled");
         event.setPayload(objectMapper.writeValueAsString(envelope));
         event.setStatus(OutboxStatus.PENDING);
         event.setRetryCount(0);

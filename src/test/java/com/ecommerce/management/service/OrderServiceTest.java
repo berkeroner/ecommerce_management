@@ -32,6 +32,7 @@ import com.ecommerce.management.entity.OrderStatusHistory;
 import com.ecommerce.management.entity.OutboxEvent;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.PaymentMethod;
+import com.ecommerce.management.entity.enums.PaymentStatus;
 import com.ecommerce.management.entity.enums.RecordStatus;
 import com.ecommerce.management.repository.AddressRepository;
 import com.ecommerce.management.repository.CustomerRepository;
@@ -39,6 +40,7 @@ import com.ecommerce.management.repository.OrderItemRepository;
 import com.ecommerce.management.repository.OrderRepository;
 import com.ecommerce.management.repository.OrderStatusHistoryRepository;
 import com.ecommerce.management.repository.OutboxEventRepository;
+import com.ecommerce.management.repository.PaymentRepository;
 import com.ecommerce.management.repository.ProductRepository;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -57,6 +59,9 @@ class OrderServiceTest {
 
     @Mock
     private OutboxEventRepository outboxEventRepository;
+
+    @Mock
+    private PaymentRepository paymentRepository;
 
     @Mock
     private CustomerRepository customerRepository;
@@ -225,11 +230,133 @@ class OrderServiceTest {
                 () -> orderService.getStatus(999L)).getStatusCode());
     }
 
+    @Test
+    void shouldCancelOrderRestoreStockAndWriteTransactionalRecords() {
+        Order order = order(OrderStatus.PROCESSING);
+        Product product = new Product();
+        product.setId(10L);
+        OrderItem item = new OrderItem();
+        item.setProduct(product);
+        item.setQuantity(2);
+
+        when(orderRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrderId(100L)).thenReturn(List.of(item));
+        when(productRepository.releaseStock(eq(10L), eq(2), any(LocalDateTime.class)))
+                .thenReturn(1);
+
+        OrderResponse response = orderService.cancelOrder(100L);
+
+        assertEquals(OrderStatus.CANCELLED, response.status());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        verify(orderRepository).save(order);
+        verify(orderStatusHistoryRepository).save(argThat(history ->
+                history.getPreviousStatus() == OrderStatus.PROCESSING
+                        && history.getNewStatus() == OrderStatus.CANCELLED));
+        verify(outboxEventRepository).save(argThat(event ->
+                event.getEventType().equals("order.cancelled")
+                        && event.getAggregateId().equals(100L)));
+    }
+
+    @Test
+    void shouldReturnCancelledOrderWithoutRestoringStockAgain() {
+        Order order = order(OrderStatus.CANCELLED);
+        when(orderRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(order));
+
+        OrderResponse response = orderService.cancelOrder(100L);
+
+        assertEquals(OrderStatus.CANCELLED, response.status());
+        verifyNoInteractions(orderItemRepository, productRepository);
+        verify(orderStatusHistoryRepository, never()).save(any());
+        verify(outboxEventRepository, never()).save(any());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldRejectFailedOrderCancellation() {
+        when(orderRepository.findByIdForUpdate(100L))
+                .thenReturn(Optional.of(order(OrderStatus.FAILED)));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.cancelOrder(100L)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        verifyNoInteractions(orderItemRepository, productRepository);
+    }
+
+    @Test
+    void shouldRequireRefundBeforeCancellingPaidOrder() {
+        when(orderRepository.findByIdForUpdate(100L))
+                .thenReturn(Optional.of(order(OrderStatus.CONFIRMED)));
+        when(paymentRepository.existsByOrderIdAndStatusIn(
+                eq(100L), eq(java.util.EnumSet.of(PaymentStatus.COMPLETED))))
+                .thenReturn(true);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.cancelOrder(100L)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        verifyNoInteractions(orderItemRepository, productRepository);
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenCancelledOrderIsMissing() {
+        when(orderRepository.findByIdForUpdate(999L)).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.cancelOrder(999L)
+        );
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+    }
+
+    @Test
+    void shouldStopCancellationWhenStockCannotBeRestored() {
+        Order order = order(OrderStatus.CONFIRMED);
+        Product product = new Product();
+        product.setId(10L);
+        OrderItem item = new OrderItem();
+        item.setProduct(product);
+        item.setQuantity(2);
+        when(orderRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrderId(100L)).thenReturn(List.of(item));
+        when(productRepository.releaseStock(eq(10L), eq(2), any(LocalDateTime.class)))
+                .thenReturn(0);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.cancelOrder(100L)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals(OrderStatus.CONFIRMED, order.getStatus());
+        verify(orderRepository, never()).save(any());
+        verify(orderStatusHistoryRepository, never()).save(any());
+        verify(outboxEventRepository, never()).save(any());
+    }
+
     private Customer activeCustomer() {
         Customer customer = new Customer();
         customer.setId(1L);
         customer.setStatus(RecordStatus.ACTIVE);
         return customer;
+    }
+
+    private Order order(OrderStatus status) {
+        Customer customer = new Customer();
+        customer.setId(1L);
+        Order order = new Order();
+        order.setId(100L);
+        order.setOrderNo("ORD-TEST");
+        order.setCustomer(customer);
+        order.setStatus(status);
+        order.setGrandTotal(new BigDecimal("500.00"));
+        order.setCurrency("TRY");
+        return order;
     }
 
     private OrderRequest request(int quantity) {
