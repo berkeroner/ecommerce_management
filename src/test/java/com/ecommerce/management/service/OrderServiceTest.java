@@ -1,0 +1,286 @@
+package com.ecommerce.management.service;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Spy;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.ecommerce.management.dto.order.OrderItemRequest;
+import com.ecommerce.management.dto.order.OrderRequest;
+import com.ecommerce.management.dto.order.OrderResponse;
+import com.ecommerce.management.dto.order.OrderShippingAddressRequest;
+import com.ecommerce.management.entity.Customer;
+import com.ecommerce.management.entity.Product;
+import com.ecommerce.management.entity.Address;
+import com.ecommerce.management.entity.Order;
+import com.ecommerce.management.entity.OrderItem;
+import com.ecommerce.management.entity.OrderStatusHistory;
+import com.ecommerce.management.entity.OutboxEvent;
+import com.ecommerce.management.entity.enums.OrderStatus;
+import com.ecommerce.management.entity.enums.PaymentMethod;
+import com.ecommerce.management.entity.enums.RecordStatus;
+import com.ecommerce.management.repository.AddressRepository;
+import com.ecommerce.management.repository.CustomerRepository;
+import com.ecommerce.management.repository.OrderItemRepository;
+import com.ecommerce.management.repository.OrderRepository;
+import com.ecommerce.management.repository.OrderStatusHistoryRepository;
+import com.ecommerce.management.repository.OutboxEventRepository;
+import com.ecommerce.management.repository.ProductRepository;
+
+import tools.jackson.databind.json.JsonMapper;
+
+@ExtendWith(MockitoExtension.class)
+class OrderServiceTest {
+
+    @Mock
+    private OrderRepository orderRepository;
+
+    @Mock
+    private OrderItemRepository orderItemRepository;
+
+    @Mock
+    private OrderStatusHistoryRepository orderStatusHistoryRepository;
+
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
+
+    @Mock
+    private CustomerRepository customerRepository;
+
+    @Mock
+    private ProductRepository productRepository;
+
+    @Mock
+    private AddressRepository addressRepository;
+
+    @Spy
+    private JsonMapper objectMapper = JsonMapper.builder().build();
+
+    @InjectMocks
+    private OrderService orderService;
+
+    @Test
+    void shouldCreateOrderSuccessfully() {
+        Customer customer = new Customer();
+        customer.setId(1L);
+        customer.setStatus(RecordStatus.ACTIVE);
+
+        Product product = new Product();
+        product.setId(10L);
+        product.setName("Klavye");
+        product.setSku("KEYBOARD-001");
+        product.setPrice(new BigDecimal("250.00"));
+        product.setStock(5);
+        product.setStatus(RecordStatus.ACTIVE);
+
+        OrderShippingAddressRequest address =
+                new OrderShippingAddressRequest(
+                        "Ev",
+                        "İstanbul",
+                        "Kadıköy",
+                        "Test Sokak No: 1",
+                        "34710"
+                );
+
+        OrderRequest request = new OrderRequest(
+                1L,
+                PaymentMethod.CREDIT_CARD,
+                "mock",
+                List.of(new OrderItemRequest(10L, 2)),
+                address
+        );
+
+        when(customerRepository.findById(1L))
+                .thenReturn(Optional.of(customer));
+        when(productRepository.findById(10L))
+                .thenReturn(Optional.of(product));
+        when(productRepository.reserveStock(
+                eq(10L), eq(2), eq(RecordStatus.ACTIVE), any(LocalDateTime.class)))
+                .thenReturn(1);
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> {
+                    Order order = invocation.getArgument(0);
+                    order.setId(100L);
+                    return order;
+                });
+
+        OrderResponse response = orderService.createOrder(request);
+
+        assertEquals(100L, response.id());
+        assertEquals(OrderStatus.PROCESSING, response.status());
+        assertEquals("TRY", response.currency());
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.totalAmount()));
+
+        verify(orderItemRepository).saveAll(argThat(items -> {
+            var iterator = items.iterator();
+            if (!iterator.hasNext()) {
+                return false;
+            }
+            OrderItem item = iterator.next();
+            return !iterator.hasNext()
+                    && item.getQuantity() == 2
+                    && item.getProductName().equals("Klavye")
+                    && item.getSku().equals("KEYBOARD-001")
+                    && item.getUnitPrice().compareTo(new BigDecimal("250.00")) == 0
+                    && item.getLineTotal().compareTo(new BigDecimal("500.00")) == 0
+                    && item.getOrder().getId().equals(100L);
+        }));
+
+        verify(addressRepository).save(any(Address.class));
+        verify(orderStatusHistoryRepository).save(any(OrderStatusHistory.class));
+        verify(outboxEventRepository).save(any(OutboxEvent.class));
+    }
+
+    @Test
+    void shouldRejectMissingCustomer() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.empty());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> orderService.createOrder(request(2))).getStatusCode());
+        verifyNoInteractions(productRepository, orderRepository, outboxEventRepository);
+    }
+
+    @Test
+    void shouldRejectPassiveCustomer() {
+        Customer customer = activeCustomer();
+        customer.setStatus(RecordStatus.PASSIVE);
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class,
+                () -> orderService.createOrder(request(2))).getStatusCode());
+        verifyNoInteractions(productRepository, orderRepository, outboxEventRepository);
+    }
+
+    @Test
+    void shouldRejectMissingProduct() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(activeCustomer()));
+        when(productRepository.findById(10L)).thenReturn(Optional.empty());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> orderService.createOrder(request(2))).getStatusCode());
+        verify(productRepository, never()).reserveStock(any(), anyInt(), any(), any());
+        verifyNoInteractions(orderRepository, outboxEventRepository);
+    }
+
+    @Test
+    void shouldRejectPassiveProduct() {
+        Product product = new Product();
+        product.setStatus(RecordStatus.PASSIVE);
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(activeCustomer()));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class,
+                () -> orderService.createOrder(request(2))).getStatusCode());
+        verify(productRepository, never()).reserveStock(any(), anyInt(), any(), any());
+        verifyNoInteractions(orderRepository, outboxEventRepository);
+    }
+
+    @Test
+    void shouldRejectQuantityOverflowBeforeReservation() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(activeCustomer()));
+        OrderRequest base = request(1);
+        OrderRequest overflow = new OrderRequest(base.customerId(), base.paymentMethod(),
+                base.shippingProvider(), List.of(new OrderItemRequest(10L, Integer.MAX_VALUE),
+                new OrderItemRequest(10L, 1)), base.shippingAddress());
+        assertEquals(422, assertThrows(ResponseStatusException.class,
+                () -> orderService.createOrder(overflow)).getStatusCode().value());
+        verifyNoInteractions(productRepository, orderRepository, outboxEventRepository);
+    }
+
+    @Test
+    void shouldReturnDetailAndStatus() {
+        Order order = new Order();
+        order.setId(100L);
+        order.setOrderNo("ORD-TEST");
+        order.setStatus(OrderStatus.PROCESSING);
+        order.setGrandTotal(new BigDecimal("500.00"));
+        order.setCurrency("TRY");
+        when(orderRepository.findById(100L)).thenReturn(Optional.of(order));
+        OrderResponse detail = orderService.findById(100L);
+        assertEquals(100L, detail.id());
+        assertEquals("ORD-TEST", detail.orderNo());
+        assertEquals(order.getGrandTotal(), detail.totalAmount());
+        assertEquals("TRY", detail.currency());
+        assertEquals(OrderStatus.PROCESSING, detail.status());
+        assertEquals(100L, orderService.getStatus(100L).id());
+        assertEquals(OrderStatus.PROCESSING, orderService.getStatus(100L).status());
+    }
+
+    @Test
+    void shouldRejectMissingOrderForDetailAndStatus() {
+        when(orderRepository.findById(999L)).thenReturn(Optional.empty());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> orderService.findById(999L)).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> orderService.getStatus(999L)).getStatusCode());
+    }
+
+    private Customer activeCustomer() {
+        Customer customer = new Customer();
+        customer.setId(1L);
+        customer.setStatus(RecordStatus.ACTIVE);
+        return customer;
+    }
+
+    private OrderRequest request(int quantity) {
+        return new OrderRequest(1L, PaymentMethod.CREDIT_CARD, "mock",
+                List.of(new OrderItemRequest(10L, quantity)),
+                new OrderShippingAddressRequest("Ev", "İstanbul", "Kadıköy", "Test Sokak", "34710"));
+    }
+
+    @Test
+    void shouldRejectOrderWhenStockIsInsufficient() {
+        Customer customer = new Customer();
+        customer.setId(1L);
+        customer.setStatus(RecordStatus.ACTIVE);
+
+        Product product = new Product();
+        product.setId(10L);
+        product.setName("Klavye");
+        product.setSku("KEYBOARD-001");
+        product.setPrice(new BigDecimal("250.00"));
+        product.setStock(1);
+        product.setStatus(RecordStatus.ACTIVE);
+
+        OrderRequest request = new OrderRequest(
+                1L,
+                PaymentMethod.CREDIT_CARD,
+                "mock",
+                List.of(new OrderItemRequest(10L, 2)),
+                new OrderShippingAddressRequest(
+                        "Ev", "İstanbul", "Kadıköy", "Test Sokak No: 1", "34710")
+        );
+
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productRepository.reserveStock(
+                eq(10L), eq(2), eq(RecordStatus.ACTIVE), any(LocalDateTime.class)))
+                .thenReturn(0);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.createOrder(request)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        verify(productRepository).reserveStock(
+                eq(10L), eq(2), eq(RecordStatus.ACTIVE), any(LocalDateTime.class));
+        verifyNoInteractions(
+                orderRepository,
+                orderItemRepository,
+                addressRepository,
+                orderStatusHistoryRepository,
+                outboxEventRepository
+        );
+    }
+}

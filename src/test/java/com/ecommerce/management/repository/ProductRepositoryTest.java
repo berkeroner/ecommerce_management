@@ -19,6 +19,59 @@ import com.ecommerce.management.entity.enums.RecordStatus;
 @ActiveProfiles("test")
 class ProductRepositoryTest {
 
+    @Autowired jakarta.persistence.EntityManager entityManager;
+
+    @Test
+    void shouldReserveStockAndUpdateTimestamp() {
+        Product saved = productRepository.saveAndFlush(product(categoryRepository.saveAndFlush(category())));
+        LocalDateTime now = LocalDateTime.of(2026, 9, 18, 12, 0);
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                productRepository.reserveStock(saved.getId(), 3, RecordStatus.ACTIVE, now));
+        entityManager.clear();
+        Product reloaded = productRepository.findById(saved.getId()).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(7, reloaded.getStock());
+        org.junit.jupiter.api.Assertions.assertEquals(now, reloaded.getUpdatedAt());
+    }
+
+    @Test
+    void shouldReserveExactRemainingStockOnlyOnce() {
+        Product saved = productRepository.saveAndFlush(product(categoryRepository.saveAndFlush(category())));
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                productRepository.reserveStock(saved.getId(), 10, RecordStatus.ACTIVE, LocalDateTime.now()));
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                productRepository.reserveStock(saved.getId(), 1, RecordStatus.ACTIVE, LocalDateTime.now()));
+        entityManager.clear();
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                productRepository.findById(saved.getId()).orElseThrow().getStock());
+    }
+
+    @Test
+    void shouldNotChangeStockOrTimestampWhenReservationFails() {
+        Product saved = productRepository.saveAndFlush(product(categoryRepository.saveAndFlush(category())));
+        LocalDateTime original = saved.getUpdatedAt();
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                productRepository.reserveStock(saved.getId(), 11, RecordStatus.ACTIVE, original.plusDays(1)));
+        entityManager.clear();
+        Product reloaded = productRepository.findById(saved.getId()).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(10, reloaded.getStock());
+        // Veritabanının timestamp hassasiyetine uygun karşılaştırma.
+        org.junit.jupiter.api.Assertions.assertEquals(original.withNano(0), reloaded.getUpdatedAt().withNano(0));
+    }
+
+    @Test
+    void shouldRejectPassiveAndMissingProductsForReservation() {
+        Product saved = product(categoryRepository.saveAndFlush(category()));
+        saved.setStatus(RecordStatus.PASSIVE);
+        productRepository.saveAndFlush(saved);
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                productRepository.reserveStock(saved.getId(), 1, RecordStatus.ACTIVE, LocalDateTime.now()));
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                productRepository.reserveStock(Long.MAX_VALUE, 1, RecordStatus.ACTIVE, LocalDateTime.now()));
+        entityManager.clear();
+        org.junit.jupiter.api.Assertions.assertEquals(10,
+                productRepository.findById(saved.getId()).orElseThrow().getStock());
+    }
+
     @Autowired ProductRepository productRepository;
     @Autowired CategoryRepository categoryRepository;
 
