@@ -11,9 +11,13 @@ import java.math.BigDecimal;
 import com.ecommerce.management.dto.order.OrderRequest;
 import com.ecommerce.management.dto.order.OrderResponse;
 import com.ecommerce.management.dto.order.OrderStatusResponse;
+import com.ecommerce.management.dto.payment.PaymentRequest;
+import com.ecommerce.management.dto.payment.PaymentResponse;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.PaymentMethod;
+import com.ecommerce.management.entity.enums.PaymentStatus;
 import com.ecommerce.management.service.OrderService;
+import com.ecommerce.management.service.PaymentService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -31,6 +35,7 @@ class OrderControllerTest {
 
     @Autowired private MockMvc mockMvc;
     @MockitoBean private OrderService orderService;
+    @MockitoBean private PaymentService paymentService;
 
     private static final String REQUEST = """
             {
@@ -135,6 +140,75 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.data.id").value(100))
                 .andExpect(jsonPath("$.data.status").value("processing"));
         verify(orderService).getStatus(100L);
+    }
+
+    @Test
+    void shouldCancelOrder() throws Exception {
+        when(orderService.cancelOrder(100L)).thenReturn(new OrderResponse(
+                100L,
+                "ORD-TEST",
+                OrderStatus.CANCELLED,
+                new BigDecimal("500.00"),
+                "TRY"
+        ));
+
+        mockMvc.perform(post("/api/v1/orders/100/cancel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(100))
+                .andExpect(jsonPath("$.data.order_no").value("ORD-TEST"))
+                .andExpect(jsonPath("$.data.status").value("cancelled"))
+                .andExpect(jsonPath("$.data.total_amount").value(500));
+        verify(orderService).cancelOrder(100L);
+    }
+
+    @Test
+    void shouldStartPayment() throws Exception {
+        when(paymentService.startPayment(eq(100L), any(PaymentRequest.class)))
+                .thenReturn(new PaymentResponse(5L, "PAY-TEST", 100L,
+                        PaymentMethod.CREDIT_CARD, "mock-card", PaymentStatus.COMPLETED,
+                        new BigDecimal("500.00"), "TXN-TEST", null, null));
+
+        mockMvc.perform(post("/api/v1/orders/100/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"method\":\"credit_card\",\"payment_token\":\"mock-token\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").value(5))
+                .andExpect(jsonPath("$.data.status").value("completed"))
+                .andExpect(jsonPath("$.data.payment_no").value("PAY-TEST"));
+        verify(paymentService).startPayment(eq(100L), any(PaymentRequest.class));
+    }
+
+    @Test
+    void shouldRejectPaymentWithoutMethod() throws Exception {
+        mockMvc.perform(post("/api/v1/orders/100/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"payment_token\":\"mock-token\"}"))
+                .andExpect(status().is(422));
+        verifyNoInteractions(paymentService);
+    }
+
+    @Test
+    void shouldReturnConflictWhenOrderCannotBeCancelled() throws Exception {
+        when(orderService.cancelOrder(100L)).thenThrow(new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Order cannot be cancelled from status: FAILED"
+        ));
+
+        mockMvc.perform(post("/api/v1/orders/100/cancel"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("CONFLICT"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenCancelledOrderDoesNotExist() throws Exception {
+        when(orderService.cancelOrder(999L)).thenThrow(new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "Order not found: 999"
+        ));
+
+        mockMvc.perform(post("/api/v1/orders/999/cancel"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
     }
 
     @ParameterizedTest

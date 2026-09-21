@@ -45,6 +45,20 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             @Param("now") LocalDateTime now
     );
 
+    @Modifying
+    @Query("""
+            update Product p
+            set p.stock = p.stock + :quantity,
+                p.updatedAt = :now
+            where p.id = :id
+              and p.stock <= 2147483647 - :quantity
+            """)
+    int releaseStock(
+            @Param("id") Long id,
+            @Param("quantity") int quantity,
+            @Param("now") LocalDateTime now
+    );
+
     boolean existsByCategoryId(Long categoryId);
 
     boolean existsBySku(String sku);
