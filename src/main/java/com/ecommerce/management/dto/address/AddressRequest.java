@@ -9,9 +9,7 @@ import jakarta.validation.constraints.Size;
 
 public record AddressRequest(
 
-        @NotNull
-        @JsonProperty("address_type")
-        AddressType addressType,
+        @NotNull @JsonProperty("address_type") AddressType addressType,
 
         @NotBlank @Size(max = 100) String title,
 
@@ -19,12 +17,8 @@ public record AddressRequest(
 
         @NotBlank @Size(max = 100) String district,
 
-        @NotBlank
-        @JsonProperty("address_line")
-        String addressLine,
+        @NotBlank @JsonProperty("address_line") String addressLine,
 
-        @Size(max = 20)
-        @JsonProperty("postal_code")
-        String postalCode
+        @Size(max = 20) @JsonProperty("postal_code") String postalCode
 ) {
 }

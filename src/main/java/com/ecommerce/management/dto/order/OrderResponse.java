@@ -10,6 +10,6 @@ public record OrderResponse(
     OrderStatus status,
     BigDecimal totalAmount,
     String currency
-    
+
 ) {
 }

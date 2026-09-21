@@ -37,7 +37,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
               and p.status = :status
               and p.stock >= :quantity
             """)
-            
+
     int reserveStock(
             @Param("id") Long id,
             @Param("quantity") int quantity,

@@ -1,18 +1,5 @@
 package com.ecommerce.management.service;
 
-import com.ecommerce.management.dto.order.*;
-import com.ecommerce.management.entity.*;
-import com.ecommerce.management.entity.enums.*;
-import com.ecommerce.management.repository.*;
-
-import lombok.RequiredArgsConstructor;
-import org.slf4j.MDC;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.ObjectMapper;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -20,6 +7,42 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+
+import org.slf4j.MDC;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.ecommerce.management.dto.order.OrderItemRequest;
+import com.ecommerce.management.dto.order.OrderRequest;
+import com.ecommerce.management.dto.order.OrderResponse;
+import com.ecommerce.management.dto.order.OrderStatusResponse;
+import com.ecommerce.management.dto.order.OrderShippingAddressRequest;
+import com.ecommerce.management.entity.Address;
+import com.ecommerce.management.entity.Customer;
+import com.ecommerce.management.entity.Order;
+import com.ecommerce.management.entity.OrderItem;
+import com.ecommerce.management.entity.OrderStatusHistory;
+import com.ecommerce.management.entity.OutboxEvent;
+import com.ecommerce.management.entity.Product;
+import com.ecommerce.management.entity.enums.AddressType;
+import com.ecommerce.management.entity.enums.AddressableType;
+import com.ecommerce.management.entity.enums.OrderStatus;
+import com.ecommerce.management.entity.enums.OutboxStatus;
+import com.ecommerce.management.entity.enums.RecordStatus;
+import com.ecommerce.management.repository.AddressRepository;
+import com.ecommerce.management.repository.CustomerRepository;
+import com.ecommerce.management.repository.OrderItemRepository;
+import com.ecommerce.management.repository.OrderRepository;
+import com.ecommerce.management.repository.OrderStatusHistoryRepository;
+import com.ecommerce.management.repository.OutboxEventRepository;
+import com.ecommerce.management.repository.ProductRepository;
+
+import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.ObjectMapper;
+
+
 
 @Service
 @RequiredArgsConstructor
@@ -51,8 +74,6 @@ public class OrderService {
             );
         }
 
-        // Aynı ürün birden fazla kalemde varsa adetlerini birleştir.
-        // ID sırası, eşzamanlı siparişlerde kilit sırasını tutarlı yapar.
         Map<Long, Integer> quantities = new TreeMap<>();
 
         for (OrderItemRequest item : request.items()) {
@@ -123,7 +144,6 @@ public class OrderService {
             subtotal = subtotal.add(lineTotal);
         }
 
-        // decimal(12,2) alanının üst sınırı.
         if (subtotal.compareTo(
                 new BigDecimal("9999999999.99")) > 0) {
             throw new ResponseStatusException(
@@ -163,6 +183,26 @@ public class OrderService {
                 order.getGrandTotal(),
                 order.getCurrency()
         );
+    }
+
+    @Transactional (readOnly = true)
+    public OrderResponse findById(Long id) {
+        return toResponse(getOrder(id));
+    }
+
+    private Order getOrder(Long id) {
+        return orderRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Order not found: " + id));
+    }
+
+    @Transactional (readOnly = true)
+    public OrderStatusResponse getStatus(Long id) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Order not found: " + id));
+
+        return new OrderStatusResponse(order.getId(), order.getStatus());
     }
 
     private void saveShippingAddress(
@@ -243,5 +283,15 @@ public class OrderService {
         event.setCreatedAt(now);
 
         outboxEventRepository.save(event);
+    }
+
+    private OrderResponse toResponse(Order order) {
+        return new OrderResponse(
+                order.getId(),
+                order.getOrderNo(),
+                order.getStatus(),
+                order.getGrandTotal(),
+                order.getCurrency()
+        );
     }
 }

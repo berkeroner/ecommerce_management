@@ -25,5 +25,5 @@ public record OrderShippingAddressRequest(
     String postalCode
 
 ) {
-    
+
 }

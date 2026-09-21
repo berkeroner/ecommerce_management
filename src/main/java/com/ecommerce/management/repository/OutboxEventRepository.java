@@ -6,5 +6,5 @@ import com.ecommerce.management.entity.OutboxEvent;
 import java.util.UUID;
 
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
-    
+
 }
