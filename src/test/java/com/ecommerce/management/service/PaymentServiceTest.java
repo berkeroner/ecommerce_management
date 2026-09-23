@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,8 +22,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.ecommerce.management.client.DummyPaymentClient;
 import com.ecommerce.management.dto.payment.PaymentRequest;
 import com.ecommerce.management.dto.payment.PaymentResponse;
+import com.ecommerce.management.dto.payment.provider.DummyPaymentAcceptedResponse;
+import com.ecommerce.management.dto.payment.provider.PaymentCallbackRequest;
+import com.ecommerce.management.dto.payment.provider.ProviderPaymentStatus;
 import com.ecommerce.management.entity.Customer;
 import com.ecommerce.management.entity.Order;
 import com.ecommerce.management.entity.OutboxEvent;
@@ -32,7 +37,6 @@ import com.ecommerce.management.entity.Product;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.PaymentMethod;
 import com.ecommerce.management.entity.enums.PaymentStatus;
-import com.ecommerce.management.payment.PaymentResult;
 import com.ecommerce.management.payment.PaymentStrategy;
 import com.ecommerce.management.payment.PaymentStrategyFactory;
 import com.ecommerce.management.repository.OrderRepository;
@@ -55,6 +59,7 @@ class PaymentServiceTest {
     @Mock private OutboxEventRepository outboxEventRepository;
     @Mock private PaymentStrategyFactory strategyFactory;
     @Mock private PaymentStrategy strategy;
+    @Mock private DummyPaymentClient dummyPaymentClient;
     @Spy private JsonMapper objectMapper = JsonMapper.builder().build();
     @InjectMocks private PaymentService paymentService;
 
@@ -73,28 +78,34 @@ class PaymentServiceTest {
     }
 
     @Test
-    void shouldCompletePaymentAndConfirmOrder() {
+    void shouldStartPaymentAsProcessing() {
         mockOrderLookup();
-        mockStrategy(PaymentResult.completed("TXN-1"));
+        mockProvider();
 
         PaymentResponse response = paymentService.startPayment(
                 100L, new PaymentRequest(PaymentMethod.CREDIT_CARD, "token"));
 
-        assertEquals(PaymentStatus.COMPLETED, response.status());
-        assertEquals(OrderStatus.CONFIRMED, order.getStatus());
-        verify(historyRepository).save(argThat(history ->
-                history.getPreviousStatus() == OrderStatus.PROCESSING
-                        && history.getNewStatus() == OrderStatus.CONFIRMED));
+        assertEquals(PaymentStatus.PROCESSING, response.status());
+        assertEquals(OrderStatus.PROCESSING, order.getStatus());
+        assertEquals("11111111-1111-1111-1111-111111111111", response.transactionId());
         verify(outboxEventRepository).save(argThat(event ->
-                event.getEventType().equals("payment.completed")));
-        verify(outboxEventRepository).save(argThat(event ->
-                event.getEventType().equals("order.confirmed")));
+                event.getEventType().equals("payment.requested")));
+        verify(dummyPaymentClient).createPayment(argThat(providerRequest ->
+                providerRequest.orderId().equals("100")
+                        && providerRequest.items().size() == 1
+                        && providerRequest.items().getFirst().productName().equals("Test product")
+                        && providerRequest.items().getFirst().quantity() == 2
+                        && providerRequest.items().getFirst().unitPrice()
+                                .compareTo(new BigDecimal("250.00")) == 0));
     }
 
     @Test
-    void shouldFailPaymentAndOrder() {
-        mockOrderLookup();
-        mockStrategy(PaymentResult.failed("declined"));
+    void shouldRejectPaymentFromCallbackAndFailOrder() {
+        UUID providerPaymentId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        Payment payment = payment(PaymentStatus.PROCESSING);
+        payment.setTransactionId(providerPaymentId.toString());
+        when(paymentRepository.findByTransactionIdForUpdate(providerPaymentId.toString()))
+                .thenReturn(Optional.of(payment));
         Product product = new Product();
         product.setId(10L);
         OrderItem item = new OrderItem();
@@ -103,8 +114,14 @@ class PaymentServiceTest {
         when(orderItemRepository.findAllByOrderId(100L)).thenReturn(java.util.List.of(item));
         when(productRepository.releaseStock(any(), any(Integer.class), any())).thenReturn(1);
 
-        PaymentResponse response = paymentService.startPayment(
-                100L, new PaymentRequest(PaymentMethod.CREDIT_CARD, "token"));
+        PaymentResponse response = paymentService.handleCallback(new PaymentCallbackRequest(
+                providerPaymentId,
+                "100",
+                ProviderPaymentStatus.REJECTED,
+                new BigDecimal("500.00"),
+                "TRY",
+                "declined"
+        ));
 
         assertEquals(PaymentStatus.FAILED, response.status());
         assertEquals(OrderStatus.FAILED, order.getStatus());
@@ -122,6 +139,7 @@ class PaymentServiceTest {
                         new PaymentRequest(PaymentMethod.CREDIT_CARD, "token")));
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
         verify(strategyFactory, never()).get(any());
+        verify(dummyPaymentClient, never()).createPayment(any());
     }
 
     @Test
@@ -147,10 +165,17 @@ class PaymentServiceTest {
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
     }
 
-    private void mockStrategy(PaymentResult result) {
-        when(strategyFactory.get(PaymentMethod.CREDIT_CARD)).thenReturn(strategy);
-        when(strategy.provider()).thenReturn("mock-card");
-        when(strategy.pay("token", new BigDecimal("500.00"), "TRY")).thenReturn(result);
+    private void mockProvider() {
+        OrderItem item = new OrderItem();
+        item.setProductName("Test product");
+        item.setQuantity(2);
+        item.setUnitPrice(new BigDecimal("250.00"));
+        when(orderItemRepository.findAllByOrderId(100L)).thenReturn(java.util.List.of(item));
+        when(dummyPaymentClient.createPayment(any())).thenReturn(new DummyPaymentAcceptedResponse(
+                UUID.fromString("11111111-1111-1111-1111-111111111111"),
+                "100",
+                ProviderPaymentStatus.PROCESSING
+        ));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
             Payment payment = invocation.getArgument(0);
             payment.setId(5L);

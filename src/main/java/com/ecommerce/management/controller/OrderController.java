@@ -58,7 +58,7 @@ public class OrderController {
     public ResponseEntity<DataResponse<PaymentResponse>> startPayment(
             @PathVariable Long id, @Valid @RequestBody PaymentRequest request) {
         PaymentResponse response = paymentService.startPayment(id, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(new DataResponse<>(response));
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new DataResponse<>(response));
     }
 
 }

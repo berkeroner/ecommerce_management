@@ -165,15 +165,15 @@ class OrderControllerTest {
     void shouldStartPayment() throws Exception {
         when(paymentService.startPayment(eq(100L), any(PaymentRequest.class)))
                 .thenReturn(new PaymentResponse(5L, "PAY-TEST", 100L,
-                        PaymentMethod.CREDIT_CARD, "mock-card", PaymentStatus.COMPLETED,
+                        PaymentMethod.CREDIT_CARD, "dummy-payment-service", PaymentStatus.PROCESSING,
                         new BigDecimal("500.00"), "TXN-TEST", null, null));
 
         mockMvc.perform(post("/api/v1/orders/100/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"method\":\"credit_card\",\"payment_token\":\"mock-token\"}"))
-                .andExpect(status().isCreated())
+                .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.data.id").value(5))
-                .andExpect(jsonPath("$.data.status").value("completed"))
+                .andExpect(jsonPath("$.data.status").value("processing"))
                 .andExpect(jsonPath("$.data.payment_no").value("PAY-TEST"));
         verify(paymentService).startPayment(eq(100L), any(PaymentRequest.class));
     }

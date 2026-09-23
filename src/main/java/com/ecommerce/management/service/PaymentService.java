@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -13,8 +14,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.ecommerce.management.client.DummyPaymentClient;
 import com.ecommerce.management.dto.payment.PaymentRequest;
 import com.ecommerce.management.dto.payment.PaymentResponse;
+import com.ecommerce.management.dto.payment.provider.DummyPaymentAcceptedResponse;
+import com.ecommerce.management.dto.payment.provider.DummyPaymentItemRequest;
+import com.ecommerce.management.dto.payment.provider.DummyPaymentRequest;
+import com.ecommerce.management.dto.payment.provider.PaymentCallbackRequest;
+import com.ecommerce.management.dto.payment.provider.ProviderPaymentStatus;
 import com.ecommerce.management.entity.Order;
 import com.ecommerce.management.entity.OrderStatusHistory;
 import com.ecommerce.management.entity.OutboxEvent;
@@ -22,11 +29,10 @@ import com.ecommerce.management.entity.Payment;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.OutboxStatus;
 import com.ecommerce.management.entity.enums.PaymentStatus;
-import com.ecommerce.management.payment.PaymentResult;
 import com.ecommerce.management.payment.PaymentStrategy;
 import com.ecommerce.management.payment.PaymentStrategyFactory;
-import com.ecommerce.management.repository.OrderRepository;
 import com.ecommerce.management.repository.OrderItemRepository;
+import com.ecommerce.management.repository.OrderRepository;
 import com.ecommerce.management.repository.OrderStatusHistoryRepository;
 import com.ecommerce.management.repository.OutboxEventRepository;
 import com.ecommerce.management.repository.PaymentRepository;
@@ -49,6 +55,7 @@ public class PaymentService {
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final PaymentStrategyFactory strategyFactory;
+    private final DummyPaymentClient dummyPaymentClient;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -66,26 +73,41 @@ public class PaymentService {
                     "Order already has an active or completed payment");
         }
 
-        PaymentStrategy strategy = strategyFactory.get(request.method());
-        PaymentResult result = strategy.pay(
-                request.paymentToken(), order.getGrandTotal(), order.getCurrency());
-        validateResult(result);
+        List<DummyPaymentItemRequest> items = orderItemRepository.findAllByOrderId(orderId)
+                .stream()
+                .map(item -> new DummyPaymentItemRequest(
+                        item.getProductName(),
+                        item.getQuantity(),
+                        item.getUnitPrice()
+                ))
+                .toList();
+
+        if (items.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Order does not contain any items");
+        }
+
+        DummyPaymentAcceptedResponse providerResponse = dummyPaymentClient.createPayment(
+                new DummyPaymentRequest(
+                        order.getId().toString(),
+                        items,
+                        order.getCurrency()
+                )
+        );
+        validateProviderResponse(providerResponse, order);
 
         LocalDateTime now = LocalDateTime.now();
         Payment payment = new Payment();
         payment.setOrder(order);
         payment.setPaymentNo("PAY-" + UUID.randomUUID());
         payment.setMethod(request.method());
-        payment.setProvider(strategy.provider());
-        payment.setStatus(result.status());
+        payment.setProvider("dummy-payment-service");
+        payment.setStatus(PaymentStatus.PROCESSING);
         payment.setAmount(order.getGrandTotal());
-        payment.setTransactionId(result.transactionId());
-        payment.setFailureReason(result.failureReason());
+        payment.setTransactionId(providerResponse.paymentId().toString());
+        payment.setFailureReason(null);
         payment.setCreatedAt(now);
         payment.setUpdatedAt(now);
-        if (result.status() == PaymentStatus.COMPLETED) {
-            payment.setPaidAt(now);
-        }
         payment = paymentRepository.save(payment);
 
         savePaymentEvent(payment, "payment.requested", Map.of(
@@ -94,18 +116,72 @@ public class PaymentService {
                 "amount", payment.getAmount(),
                 "currency", order.getCurrency()), now);
 
-        if (result.status() == PaymentStatus.COMPLETED) {
+        return toResponse(payment);
+    }
+
+    @Transactional
+    public PaymentResponse handleCallback(PaymentCallbackRequest callback) {
+        if (callback.status() != ProviderPaymentStatus.APPROVED
+                && callback.status() != ProviderPaymentStatus.REJECTED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Callback must contain a final payment status");
+        }
+
+        Payment payment = paymentRepository
+                .findByTransactionIdForUpdate(callback.paymentId().toString())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Payment not found for provider payment id: " + callback.paymentId()
+                ));
+        Order order = payment.getOrder();
+        validateCallback(callback, payment, order);
+
+        if (callback.status() == ProviderPaymentStatus.APPROVED
+                && payment.getStatus() == PaymentStatus.COMPLETED) {
+            return toResponse(payment);
+        }
+        if (callback.status() == ProviderPaymentStatus.REJECTED
+                && payment.getStatus() == PaymentStatus.FAILED) {
+            return toResponse(payment);
+        }
+        if (!EnumSet.of(PaymentStatus.PENDING, PaymentStatus.PROCESSING)
+                .contains(payment.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Payment callback conflicts with current status: " + payment.getStatus());
+        }
+        if (order.getStatus() != OrderStatus.PROCESSING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Payment callback cannot update order status: " + order.getStatus());
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (callback.status() == ProviderPaymentStatus.APPROVED) {
+            payment.setStatus(PaymentStatus.COMPLETED);
+            payment.setFailureReason(null);
+            payment.setPaidAt(now);
+            payment.setUpdatedAt(now);
+            paymentRepository.save(payment);
+
             transitionOrder(order, OrderStatus.CONFIRMED, "Payment completed", now);
             savePaymentEvent(payment, "payment.completed", Map.of(
                     "order_id", order.getId(),
                     "transaction_id", payment.getTransactionId()), now);
             saveOrderEvent(order, "order.confirmed", now);
-        } else if (result.status() == PaymentStatus.FAILED) {
+        } else {
+            String failureReason = callback.message() == null || callback.message().isBlank()
+                    ? "Payment rejected"
+                    : callback.message();
+            payment.setStatus(PaymentStatus.FAILED);
+            payment.setFailureReason(failureReason);
+            payment.setUpdatedAt(now);
+            paymentRepository.save(payment);
+
             releaseReservedStock(order, now);
-            transitionOrder(order, OrderStatus.FAILED, "Payment failed: " + result.failureReason(), now);
+            transitionOrder(order, OrderStatus.FAILED,
+                    "Payment failed: " + failureReason, now);
             savePaymentEvent(payment, "payment.failed", Map.of(
                     "order_id", order.getId(),
-                    "reason", result.failureReason()), now);
+                    "reason", failureReason), now);
         }
 
         return toResponse(payment);
@@ -149,21 +225,36 @@ public class PaymentService {
         return toResponse(payment);
     }
 
-    private void validateResult(PaymentResult result) {
-        if (result == null || !EnumSet.of(
-                PaymentStatus.PENDING, PaymentStatus.COMPLETED, PaymentStatus.FAILED)
-                .contains(result.status())) {
+    private void validateProviderResponse(DummyPaymentAcceptedResponse response, Order order) {
+        if (response == null
+                || response.paymentId() == null
+                || response.status() != ProviderPaymentStatus.PROCESSING) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Payment provider returned an invalid result");
         }
-        if (result.status() == PaymentStatus.FAILED
-                && (result.failureReason() == null || result.failureReason().isBlank())) {
+        if (!order.getId().toString().equals(response.orderId())) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Payment provider did not return a failure reason");
+                    "Payment provider returned a mismatched order id");
         }
     }
 
-    private void transitionOrder(Order order, OrderStatus newStatus, String reason, LocalDateTime now) {
+    private void validateCallback(PaymentCallbackRequest callback, Payment payment, Order order) {
+        if (!order.getId().toString().equals(callback.orderId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Callback order id does not match the payment");
+        }
+        if (payment.getAmount().compareTo(callback.totalAmount()) != 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Callback total amount does not match the payment");
+        }
+        if (!order.getCurrency().equals(callback.currency())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Callback currency does not match the order");
+        }
+    }
+
+    private void transitionOrder(Order order, OrderStatus newStatus, String reason, LocalDateTime now)
+    {
         OrderStatus previousStatus = order.getStatus();
         order.setStatus(newStatus);
         order.setUpdatedAt(now);
@@ -178,8 +269,8 @@ public class PaymentService {
         orderStatusHistoryRepository.save(history);
     }
 
-    private void savePaymentEvent(
-            Payment payment, String eventType, Map<String, Object> extraData, LocalDateTime now) {
+    private void savePaymentEvent(Payment payment, String eventType, Map<String, Object> extraData, LocalDateTime now)
+    {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("payment_id", payment.getId());
         data.put("payment_no", payment.getPaymentNo());
