@@ -10,10 +10,24 @@ import com.ecommerce.management.entity.enums.PaymentMethod;
 
 @Component
 public class CashOnDeliveryPaymentStrategy implements PaymentStrategy {
-    public boolean supports(PaymentMethod method) { return method == PaymentMethod.CASH_ON_DELIVERY; }
-    public String provider() { return "cash-on-delivery"; }
+
+    @Override
+    public boolean supports(PaymentMethod method) {
+        return method == PaymentMethod.CASH_ON_DELIVERY;
+    }
+
+    @Override
+    public String provider() {
+        return "cash-on-delivery";
+    }
+
+    @Override
     public PaymentResult pay(String token, BigDecimal amount, String currency) {
         return PaymentResult.pending("COD-" + UUID.randomUUID());
     }
-    public String refund(Payment payment) { return "REF-" + UUID.randomUUID(); }
+
+    @Override
+    public String refund(Payment payment) {
+        return "REF-" + UUID.randomUUID();
+    }
 }
