@@ -1,6 +1,7 @@
 package com.ecommerce.management.dto.product;
 
 import java.math.BigDecimal;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -14,6 +15,7 @@ public record ProductRequest(
 
         @NotNull
         @Positive
+        @JsonProperty("category_id")
         Long categoryId,
 
         @NotBlank

@@ -1,7 +1,9 @@
 package com.ecommerce.management.service;
 
+import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -41,14 +43,14 @@ public class CategoryService {
 
     @Transactional
     public CategoryResponse create(CategoryRequest request) {
-        String slug = normalizeSlug(request.slug());
+        String slug = slugify(request.name());
         ensureSlugIsAvailable(slug, null);
 
         LocalDateTime now = LocalDateTime.now();
         Category category = new Category();
         category.setName(request.name().trim());
         category.setSlug(slug);
-        category.setIsActive(request.isActive());
+        category.setIsActive(true);
         category.setCreatedAt(now);
         category.setUpdatedAt(now);
 
@@ -58,12 +60,11 @@ public class CategoryService {
     @Transactional
     public CategoryResponse update(Long id, CategoryRequest request) {
         Category category = getCategory(id);
-        String slug = normalizeSlug(request.slug());
+        String slug = slugify(request.name());
         ensureSlugIsAvailable(slug, id);
 
         category.setName(request.name().trim());
         category.setSlug(slug);
-        category.setIsActive(request.isActive());
         category.setUpdatedAt(LocalDateTime.now());
 
         return toResponse(categoryRepository.save(category));
@@ -99,8 +100,21 @@ public class CategoryService {
         }
     }
 
-    private String normalizeSlug(String slug) {
-        return slug.trim().toLowerCase();
+    private String slugify(String name) {
+        String slug = Normalizer.normalize(
+                        name.trim().toLowerCase(Locale.forLanguageTag("tr")),
+                        Normalizer.Form.NFD)
+                .replace("ı", "i")
+                .replaceAll("\\p{M}+", "")
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-|-$", "");
+
+        if (slug.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.valueOf(422),
+                    "Category name must contain at least one letter or number");
+        }
+        return slug;
     }
 
     private CategoryResponse toResponse(Category category) {

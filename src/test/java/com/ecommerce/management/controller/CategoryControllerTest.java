@@ -57,7 +57,7 @@ class CategoryControllerTest {
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"Elektronik","slug":"elektronik","is_active":true}
+                                {"name":"Elektronik"}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/api/v1/categories/1"))
@@ -68,7 +68,7 @@ class CategoryControllerTest {
     void shouldRejectInvalidCategory() throws Exception {
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"\",\"slug\":\"\",\"is_active\":null}"))
+                        .content("{\"name\":\"\"}"))
                 .andExpect(status().is(422));
     }
 
@@ -78,7 +78,7 @@ class CategoryControllerTest {
 
         mockMvc.perform(put("/api/v1/categories/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Elektronik\",\"slug\":\"elektronik\",\"is_active\":true}"))
+                        .content("{\"name\":\"Elektronik\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.slug").value("elektronik"));
     }

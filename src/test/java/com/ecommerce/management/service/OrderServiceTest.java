@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,7 +23,6 @@ import org.springframework.web.server.ResponseStatusException;
 import com.ecommerce.management.dto.order.OrderItemRequest;
 import com.ecommerce.management.dto.order.OrderRequest;
 import com.ecommerce.management.dto.order.OrderResponse;
-import com.ecommerce.management.dto.order.OrderShippingAddressRequest;
 import com.ecommerce.management.entity.Customer;
 import com.ecommerce.management.entity.Product;
 import com.ecommerce.management.entity.Address;
@@ -31,6 +31,8 @@ import com.ecommerce.management.entity.OrderItem;
 import com.ecommerce.management.entity.OrderStatusHistory;
 import com.ecommerce.management.entity.OutboxEvent;
 import com.ecommerce.management.entity.enums.OrderStatus;
+import com.ecommerce.management.entity.enums.AddressType;
+import com.ecommerce.management.entity.enums.AddressableType;
 import com.ecommerce.management.entity.enums.PaymentMethod;
 import com.ecommerce.management.entity.enums.PaymentStatus;
 import com.ecommerce.management.entity.enums.RecordStatus;
@@ -78,6 +80,16 @@ class OrderServiceTest {
     @InjectMocks
     private OrderService orderService;
 
+    @BeforeEach
+    void setUpCustomerAddresses() {
+        lenient().when(addressRepository.findByIdAndAddressableTypeAndAddressableId(
+                        20L, AddressableType.CUSTOMER, 1L))
+                .thenReturn(Optional.of(address(20L, AddressType.SHIPPING)));
+        lenient().when(addressRepository.findByIdAndAddressableTypeAndAddressableId(
+                        21L, AddressableType.CUSTOMER, 1L))
+                .thenReturn(Optional.of(address(21L, AddressType.BILLING)));
+    }
+
     @Test
     void shouldCreateOrderSuccessfully() {
         Customer customer = new Customer();
@@ -92,21 +104,13 @@ class OrderServiceTest {
         product.setStock(5);
         product.setStatus(RecordStatus.ACTIVE);
 
-        OrderShippingAddressRequest address =
-                new OrderShippingAddressRequest(
-                        "Ev",
-                        "İstanbul",
-                        "Kadıköy",
-                        "Test Sokak No: 1",
-                        "34710"
-                );
-
         OrderRequest request = new OrderRequest(
                 1L,
                 PaymentMethod.CREDIT_CARD,
                 "mock",
-                List.of(new OrderItemRequest(10L, 2)),
-                address
+                20L,
+                21L,
+                List.of(new OrderItemRequest(10L, 2))
         );
 
         when(customerRepository.findById(1L))
@@ -145,7 +149,7 @@ class OrderServiceTest {
                     && item.getOrder().getId().equals(100L);
         }));
 
-        verify(addressRepository).save(any(Address.class));
+        verify(addressRepository, times(2)).save(any(Address.class));
         verify(orderStatusHistoryRepository).save(any(OrderStatusHistory.class));
         verify(outboxEventRepository).save(any(OutboxEvent.class));
     }
@@ -165,6 +169,37 @@ class OrderServiceTest {
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
         assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class,
                 () -> orderService.createOrder(request(2))).getStatusCode());
+        verifyNoInteractions(productRepository, orderRepository, outboxEventRepository);
+    }
+
+    @Test
+    void shouldRejectAddressThatDoesNotBelongToCustomer() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(activeCustomer()));
+        when(addressRepository.findByIdAndAddressableTypeAndAddressableId(
+                20L, AddressableType.CUSTOMER, 1L)).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.createOrder(request(2)));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        verifyNoInteractions(productRepository, orderRepository, outboxEventRepository);
+    }
+
+    @Test
+    void shouldRejectExplicitBillingAddressWithWrongType() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(activeCustomer()));
+        when(addressRepository.findByIdAndAddressableTypeAndAddressableId(
+                21L, AddressableType.CUSTOMER, 1L))
+                .thenReturn(Optional.of(address(21L, AddressType.SHIPPING)));
+        OrderRequest request = new OrderRequest(1L, PaymentMethod.CREDIT_CARD, "mock",
+                20L, 21L, List.of(new OrderItemRequest(10L, 2)));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.createOrder(request));
+
+        assertEquals(422, exception.getStatusCode().value());
         verifyNoInteractions(productRepository, orderRepository, outboxEventRepository);
     }
 
@@ -195,8 +230,9 @@ class OrderServiceTest {
         when(customerRepository.findById(1L)).thenReturn(Optional.of(activeCustomer()));
         OrderRequest base = request(1);
         OrderRequest overflow = new OrderRequest(base.customerId(), base.paymentMethod(),
-                base.shippingProvider(), List.of(new OrderItemRequest(10L, Integer.MAX_VALUE),
-                new OrderItemRequest(10L, 1)), base.shippingAddress());
+                base.shippingProvider(), base.shippingAddressId(), base.billingAddressId(),
+                List.of(new OrderItemRequest(10L, Integer.MAX_VALUE),
+                new OrderItemRequest(10L, 1)));
         assertEquals(422, assertThrows(ResponseStatusException.class,
                 () -> orderService.createOrder(overflow)).getStatusCode().value());
         verifyNoInteractions(productRepository, orderRepository, outboxEventRepository);
@@ -361,8 +397,21 @@ class OrderServiceTest {
 
     private OrderRequest request(int quantity) {
         return new OrderRequest(1L, PaymentMethod.CREDIT_CARD, "mock",
-                List.of(new OrderItemRequest(10L, quantity)),
-                new OrderShippingAddressRequest("Ev", "İstanbul", "Kadıköy", "Test Sokak", "34710"));
+                20L, null, List.of(new OrderItemRequest(10L, quantity)));
+    }
+
+    private Address address(Long id, AddressType type) {
+        Address address = new Address();
+        address.setId(id);
+        address.setAddressableType(AddressableType.CUSTOMER);
+        address.setAddressableId(1L);
+        address.setAddressType(type);
+        address.setTitle("Ev");
+        address.setCity("İstanbul");
+        address.setDistrict("Kadıköy");
+        address.setAddressLine("Test Sokak No: 1");
+        address.setPostalCode("34710");
+        return address;
     }
 
     @Test
@@ -383,9 +432,9 @@ class OrderServiceTest {
                 1L,
                 PaymentMethod.CREDIT_CARD,
                 "mock",
-                List.of(new OrderItemRequest(10L, 2)),
-                new OrderShippingAddressRequest(
-                        "Ev", "İstanbul", "Kadıköy", "Test Sokak No: 1", "34710")
+                20L,
+                null,
+                List.of(new OrderItemRequest(10L, 2))
         );
 
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
@@ -405,9 +454,9 @@ class OrderServiceTest {
         verifyNoInteractions(
                 orderRepository,
                 orderItemRepository,
-                addressRepository,
                 orderStatusHistoryRepository,
                 outboxEventRepository
         );
+        verify(addressRepository, never()).save(any());
     }
 }

@@ -1,693 +1,438 @@
-**Stajyer Projesi: Mini E-Ticaret Sipariş API’si**  
-Docker üzerinde çalışan, asenkron işlemleri destekleyen basit bir
-e-ticaret API’si geliştirilecektir.  
-**Kullanılacak servisler**
-
-||
-||
-||
-
-<table>
-<tbody>
-<tr class="odd">
-<td><ul>
-<li><p>MySQL: Kalıcı veriler</p></li>
-<li><p>Redis: Cache, stok kilidi ve idempotency</p></li>
-<li><p>RabbitMQ: Asenkron event ve job işlemleri</p></li>
-<li><p>Tercih edilen bir API framework’ü</p></li>
-<li><p>Docker Compose<br />
-<strong>Temel senaryo</strong><br />
-Müşteri ürünleri listeleyebilir ve sipariş oluşturabilir. Sipariş
-oluşturulduktan sonra stok kontrolü, ödeme ve bildirim süreçleri
-RabbitMQ üzerinden asenkron olarak çalıştırılır.<br />
-Ödeme yöntemi ve kargo firması çalışma zamanında seçilebilmelidir. Bunun
-için Strategy Pattern kullanılmalıdır.<br />
-Ürün, sipariş veya ödeme gibi farklı modellere dosya eklenebilmelidir.
-Dosya ilişkisi polymorphic olarak tasarlanmalıdır.<br />
-<br />
-<strong>Veri tabanı tabloları</strong><br />
-customers</p></li>
-</ul>
-<p>Alan</p></td>
-<td><p>Tip</p></td>
-<td><p>Açıklama</p></td>
-</tr>
-<tr class="even">
-<td><p>id</p></td>
-<td><p>bigint</p></td>
-<td><p>Primary key</p></td>
-</tr>
-<tr class="odd">
-<td><p>name</p></td>
-<td><p>varchar(150)</p></td>
-<td><p>Müşteri adı</p></td>
-</tr>
-<tr class="even">
-<td><p>email</p></td>
-<td><p>varchar(190)</p></td>
-<td><p>Unique</p></td>
-</tr>
-<tr class="odd">
-<td><p>status</p></td>
-<td><p>varchar(30)</p></td>
-<td><p>active, passive</p></td>
-</tr>
-<tr class="even">
-<td><p>created_at</p></td>
-<td><p>datetime</p></td>
-<td><p>Oluşturulma tarihi</p></td>
-</tr>
-<tr class="odd">
-<td><p>updated_at</p></td>
-<td><p>datetime</p></td>
-<td><p>Güncellenme tarihi</p></td>
-</tr>
-<tr class="even">
-<td></td>
-<td></td>
-<td></td>
-</tr>
-</tbody>
-</table>
-
-**categories**
-
-|            |              |                    |
-|------------|--------------|--------------------|
-| Alan       | Tip          | Açıklama           |
-| id         | bigint       | Primary key        |
-| name       | varchar(150) | Kategori adı       |
-| slug       | varchar(190) | Unique             |
-| created_at | datetime     | Oluşturulma tarihi |
-| updated_at | datetime     | Güncellenme tarihi |
-|            |              |                    |
-
-**products**
-
-|             |               |                    |
-|-------------|---------------|--------------------|
-| Alan        | Tip           | Açıklama           |
-| id          | bigint        | Primary key        |
-| category_id | bigint        | Foreign key        |
-| name        | varchar(190)  | Ürün adı           |
-| sku         | varchar(100)  | Unique stok kodu   |
-| price       | decimal(12,2) | Güncel fiyat       |
-| stock       | int           | Satılabilir stok   |
-| status      | varchar(30)   | active, passive    |
-| created_at  | datetime      | Oluşturulma tarihi |
-| updated_at  | datetime      | Güncellenme tarihi |
-|             |               |                    |
-
-**orders**
-
-|                |               |                                                   |
-|----------------|---------------|---------------------------------------------------|
-| Alan           | Tip           | Açıklama                                          |
-| id             | bigint        | Primary key                                       |
-| order_no       | varchar(50)   | Unique sipariş numarası                           |
-| customer_id    | bigint        | Foreign key                                       |
-| status         | varchar(30)   | pending, processing, confirmed, failed, cancelled |
-| currency       | char(3)       | TRY, USD vb.                                      |
-| subtotal       | decimal(12,2) | İndirimsiz toplam                                 |
-| discount_total | decimal(12,2) | Toplam indirim                                    |
-| shipping_total | decimal(12,2) | Kargo bedeli                                      |
-| grand_total    | decimal(12,2) | Ödenecek tutar                                    |
-| created_at     | datetime      | Oluşturulma tarihi                                |
-| updated_at     | datetime      | Güncellenme tarihi                                |
-|                |               |                                                   |
-
-**order_items**  
-Sipariş sırasında ürün fiyatı değişebileceği için ürün adı, SKU ve fiyat
-bilgileri snapshot olarak tutulmalıdır.
-
-|                |               |                              |
-|----------------|---------------|------------------------------|
-| Alan           | Tip           | Açıklama                     |
-| id             | bigint        | Primary key                  |
-| order_id       | bigint        | Foreign key                  |
-| product_id     | bigint        | Foreign key                  |
-| product_name   | varchar(190)  | Sipariş anındaki ürün adı    |
-| sku            | varchar(100)  | Sipariş anındaki SKU         |
-| unit_price     | decimal(12,2) | Sipariş anındaki birim fiyat |
-| quantity       | int           | Adet                         |
-| discount_total | decimal(12,2) | Satır indirimi               |
-| line_total     | decimal(12,2) | Satır toplamı                |
-| created_at     | datetime      | Oluşturulma tarihi           |
-|                |               |                              |
-
-**addresses**  
-Adres tablosu polymorphic tasarlanacaktır. Böylece hem müşteriye hem de
-siparişe adres bağlanabilir.
-
-|                  |              |                       |
-|------------------|--------------|-----------------------|
-| Alan             | Tip          | Açıklama              |
-| id               | bigint       | Primary key           |
-| addressable_type | varchar(100) | customer veya order   |
-| addressable_id   | bigint       | İlişkili kaydın ID’si |
-| address_type     | varchar(30)  | billing, shipping     |
-| title            | varchar(100) | Ev, İş vb.            |
-| city             | varchar(100) | Şehir                 |
-| district         | varchar(100) | İlçe                  |
-| address_line     | text         | Açık adres            |
-| postal_code      | varchar(20)  | Posta kodu            |
-| created_at       | datetime     | Oluşturulma tarihi    |
-| updated_at       | datetime     | Güncellenme tarihi    |
-|                  |              |                       |
-
-`addressable_type` ve `addressable_id` alanları için birleşik index
-oluşturulmalıdır.  
-**payments**
-
-|                |                    |                                                  |
-|----------------|--------------------|--------------------------------------------------|
-| Alan           | Tip                | Açıklama                                         |
-| id             | bigint             | Primary key                                      |
-| order_id       | bigint             | Foreign key                                      |
-| payment_no     | varchar(50)        | Unique                                           |
-| method         | varchar(30)        | credit_card, bank_transfer, cash_on_delivery     |
-| provider       | varchar(50)        | mockpay, bank vb.                                |
-| status         | varchar(30)        | pending, processing, completed, failed, refunded |
-| amount         | decimal(12,2)      | Ödeme tutarı                                     |
-| transaction_id | varchar(190)       | Sağlayıcı işlem numarası                         |
-| failure_reason | varchar(500)       | Hata açıklaması                                  |
-| paid_at        | datetime, nullable | Ödeme tarihi                                     |
-| created_at     | datetime           | Oluşturulma tarihi                               |
-| updated_at     | datetime           | Güncellenme tarihi                               |
-|                |                    |                                                  |
-
-Kart numarası, CVV veya hassas ödeme bilgileri veri tabanında
-tutulmamalıdır.  
-**shipments**
-
-|                 |                    |                                                |
-|-----------------|--------------------|------------------------------------------------|
-| Alan            | Tip                | Açıklama                                       |
-| id              | bigint             | Primary key                                    |
-| order_id        | bigint             | Foreign key                                    |
-| provider        | varchar(50)        | yurtiçi, aras, mng, mock                       |
-| status          | varchar(30)        | pending, preparing, shipped, delivered, failed |
-| tracking_number | varchar(100)       | Kargo takip numarası                           |
-| shipping_cost   | decimal(12,2)      | Kargo bedeli                                   |
-| shipped_at      | datetime, nullable | Kargoya verilme tarihi                         |
-| delivered_at    | datetime, nullable | Teslim tarihi                                  |
-| created_at      | datetime           | Oluşturulma tarihi                             |
-| updated_at      | datetime           | Güncellenme tarihi                             |
-|                 |                    |                                                |
-
-**attachments**  
-Ürün, sipariş ve ödeme gibi farklı kayıtlara dosya bağlayabilen
-polymorphic tablo.
-
-|                 |              |                             |
-|-----------------|--------------|-----------------------------|
-| Alan            | Tip          | Açıklama                    |
-| id              | bigint       | Primary key                 |
-| attachable_type | varchar(100) | product, order veya payment |
-| attachable_id   | bigint       | İlişkili kaydın ID’si       |
-| type            | varchar(30)  | image, invoice, receipt     |
-| original_name   | varchar(255) | Dosya adı                   |
-| path            | varchar(500) | Dosya yolu                  |
-| mime_type       | varchar(100) | MIME tipi                   |
-| size            | bigint       | Dosya boyutu                |
-| created_at      | datetime     | Oluşturulma tarihi          |
-|                 |              |                             |
-
-`attachable_type` ve `attachable_id` alanları için birleşik index
-oluşturulmalıdır.  
-**order_status_histories**
-
-|                 |              |                   |
-|-----------------|--------------|-------------------|
-| Alan            | Tip          | Açıklama          |
-| id              | bigint       | Primary key       |
-| order_id        | bigint       | Foreign key       |
-| previous_status | varchar(30)  | Önceki durum      |
-| new_status      | varchar(30)  | Yeni durum        |
-| reason          | varchar(500) | Değişiklik nedeni |
-| created_at      | datetime     | Değişiklik tarihi |
-|                 |              |                   |
-
-**outbox_events**  
-Veri tabanı işlemi başarılı olmadan RabbitMQ mesajı gönderilmesini
-engellemek amacıyla Outbox Pattern uygulanacaktır.
-
-|                |                    |                            |
-|----------------|--------------------|----------------------------|
-| Alan           | Tip                | Açıklama                   |
-| id             | char(36)           | UUID                       |
-| aggregate_type | varchar(100)       | order, payment vb.         |
-| aggregate_id   | bigint             | İlgili kaydın ID’si        |
-| event_type     | varchar(150)       | order.created vb.          |
-| payload        | json               | Event içeriği              |
-| status         | varchar(30)        | pending, published, failed |
-| retry_count    | int                | Deneme sayısı              |
-| published_at   | datetime, nullable | Yayınlanma tarihi          |
-| created_at     | datetime           | Oluşturulma tarihi         |
-
-  
-**API endpointleri**  
-Ürünler  
-Ürün listeleme  
-`GET /api/v1/products`  
-Desteklenecek parametreler:
-
-- `page`
-
-- `limit`
-
-- `category_id`
-
-- `status`
-
-- `search`
-
-- `sort`  
-  Ürün listesi Redis üzerinde kısa süreli cache’lenebilir.  
-  **Ürün detayı**  
-  `GET /api/v1/products/``{``productId``}`  
-  **Ürün oluşturma**  
-  `POST /api/v1/products`  
-  `{`  
-  `  "category_id": 1,`  
-  `  "name": "Mekanik Klavye",`  
-  `  "sku": "KEYBOARD-001",`  
-  `  "price": 2500,`  
-  `  "stock": 20`  
-  `}`  
-  **Siparişler**  
-  Sipariş oluşturma  
-  `POST /api/v1/orders`  
-  Header:  
-  `Idempotency-Key: 81d66fca-342d-42e4-855b-9a9975a08336`  
-  Body:  
-  `{`  
-  `  "customer_id": 1,`  
-  `  "payment_method": "credit_card",`  
-  `  "shipping_provider": "mock",`  
-  `  "items": [`  
-  `    ``{`  
-  `      "product_id": 10,`  
-  `      "quantity": 2`  
-  `    ``}``,`  
-  `    ``{`  
-  `      "product_id": 15,`  
-  `      "quantity": 1`  
-  `    ``}`  
-  `  ],`  
-  `  "shipping_address": ``{`  
-  `    "title": "Ev",`  
-  `    "city": "``İ``stanbul",`  
-  `    "district": "Kad``ı``k``ö``y",`  
-  `    "address_line": "``Ö``rnek Mahallesi, Test Sokak No: 1",`  
-  `    "postal_code": "34710"`  
-  `  ``}`  
-  `}`  
-  Örnek cevap:  
-  `{`  
-  `  "data": ``{`  
-  `    "id": 125,`  
-  `    "order_no": "ORD-20260831-000125",`  
-  `    "status": "processing",`  
-  `    "grand_total": 6250,`  
-  `    "currency": "TRY"`  
-  `  ``}`  
-  `}`  
-  Aynı `Idempotency-Key` ile tekrar istek yapılırsa yeni sipariş
-  oluşturulmamalı, önceki cevap dönülmelidir.  
-  **Sipariş detayı**  
-  `GET /api/v1/orders/``{``orderId``}`  
-  **Sipariş iptali**  
-  `POST /api/v1/orders/``{``orderId``}``/cancel`  
-  Yalnızca uygun durumdaki siparişler iptal edilebilmelidir.  
-  **Sipariş durumu**  
-  `GET /api/v1/orders/``{``orderId``}``/status`  
-  **Ödemeler**  
-  Ödeme başlatma  
-  `POST /api/v1/orders/``{``orderId``}``/payments`  
-  `{`  
-  `  "method": "credit_card",`  
-  `  "payment_token": "mock-token-123"`  
-  `}`  
-  **Ödeme iadesi**  
-  `POST /api/v1/payments/``{``paymentId``}``/refund`  
-  **Dosyalar**  
-  Dosya ekleme  
-  `POST /api/v1/attachments`  
-  `multipart/form-data` kullanılabilir.  
-  Alanlar:  
-  `attachable_type=order`  
-  `attachable_id=125`  
-  `type=invoice`  
-  `file=<binary>`  
-    
-  **Sipariş oluşturma akışı**
-
-1.  İstek doğrulanır.
-
-2.  `Idempotency-Key` Redis üzerinde kontrol edilir.
-
-3.  Ürünler ve stok miktarları MySQL üzerinden kontrol edilir.
-
-4.  Stok güncellemesi sırasında Redis distributed lock veya atomik stok
-    mekanizması kullanılır.
-
-5.  Sipariş, sipariş kalemleri ve teslimat adresi transaction içinde
-    oluşturulur.
-
-6.  Aynı transaction içerisinde `order.created` kaydı `outbox_events`
-    tablosuna yazılır.
-
-7.  Outbox worker event’i RabbitMQ’ya gönderir.
-
-8.  Ödeme consumer’ı uygun ödeme stratejisini çalıştırır.
-
-9.  Ödeme başarılıysa `payment.completed`, başarısızsa `payment.failed`
-    event’i yayınlanır.
-
-10. Başarılı ödeme sonrasında sipariş onaylanır ve kargo kaydı
-    oluşturulur.
-
-11. Bildirim consumer’ı müşteriye gönderilecek e-posta veya mesajı
-    simüle eder.  
-      
-    **RabbitMQ eventleri**  
-    En az aşağıdaki eventler desteklenmelidir:
-
-- `order.created`
-
-- `stock.reserved`
-
-- `stock.reservation_failed`
-
-- `payment.requested`
-
-- `payment.completed`
-
-- `payment.failed`
-
-- `order.confirmed`
-
-- `order.cancelled`
-
-- `shipment.created`
-
-- `notification.requested`  
-  Event formatı:  
-  `{`  
-  `  "event_id": "be2f997a-bbea-4483-9913-8db7ac206c68",`  
-  `  "event_type": "order.created",`  
-  `  "occurred_at": "2026-08-31T12:00:00Z",`  
-  `  "correlation_id": "12c26a80-a8eb-49db-821d-c10e27a68f28",`  
-  `  "data": ``{`  
-  `    "order_id": 125,`  
-  `    "customer_id": 1,`  
-  `    "grand_total": 6250,`  
-  `    "currency": "TRY"`  
-  `  ``}`  
-  `}`  
-  Consumer’lar idempotent olmalıdır. Aynı event birden fazla kez
-  geldiğinde işlem tekrarlanmamalıdır.  
-  Başarısız mesajlar belirli sayıda tekrar denendikten sonra Dead Letter
-  Queue’ya taşınmalıdır.  
-    
-  **Kullanılması beklenen patternler**  
-  Strategy Pattern  
-  Ödeme yöntemleri ortak bir sözleşme üzerinden çalışmalıdır:  
-  `PaymentStrategy`  
-  ` `├──` CreditCardPaymentStrategy`  
-  ` `├──` BankTransferPaymentStrategy`  
-  ` `└──` CashOnDeliveryPaymentStrategy`  
-  Örnek metotlar:  
-  `pay(paymentRequest)`  
-  `refund(payment)`  
-  `supports(paymentMethod)`  
-  Kargo ücretinin hesaplanması için de ayrı stratejiler
-  kullanılabilir:  
-  `ShippingStrategy`  
-  ` `├──` MockShippingStrategy`  
-  ` `├──` ArasShippingStrategy`  
-  ` `└──` Yurti``ç``iShippingStrategy`  
-  **Factory Pattern**  
-  İstek içerisinde gelen ödeme yöntemine göre uygun Strategy nesnesini
-  seçmelidir.  
-  `PaymentStrategyFactory.create(paymentMethod)`  
-  Factory içerisinde uzun bir `if/else` veya `switch` zinciri yerine
-  framework’ün dependency injection özelliklerinden yararlanılması
-  tercih edilir.  
-  **Repository Pattern**  
-  Veri tabanı erişimi servis katmanından ayrılmalıdır.  
-  Örnekler:  
-  `OrderRepository`  
-  `ProductRepository`  
-  `PaymentRepository`  
-  `OutboxEventRepository`  
-  **Service Layer**  
-  İş kuralları controller içerisinde bulunmamalıdır.  
-  Örnekler:  
-  `CreateOrderService`  
-  `CancelOrderService`  
-  `PaymentService`  
-  `StockReservationService`  
-  `ShipmentService`  
-  **State Pattern veya kontrollü durum geçişleri**  
-  Sipariş durumu rastgele değiştirilememelidir.  
-  Örnek geçişler:  
-  `pending -> processing`  
-  `processing -> confirmed`  
-  `processing -> failed`  
-  `confirmed -> cancelled`  
-  cancelled durumundaki bir sipariş tekrar `confirmed`
-  yapılamamalıdır.  
-  State Pattern kullanılması bonus olarak değerlendirilebilir. Daha
-  basit bir state transition servisi de kabul edilebilir.  
-  **Outbox Pattern**  
-  Sipariş transaction’ı tamamlanmadan event yayınlanmamalıdır. Sipariş
-  kaydı ve event kaydı aynı veri tabanı transaction’ında
-  oluşturulmalıdır.  
-  **Dependency Injection**  
-  Controller, servis veya consumer sınıfları bağımlılıklarını doğrudan
-  oluşturmamalıdır. Framework’ün dependency injection mekanizması
-  kullanılmalıdır.  
-    
-  **Redis kullanım alanları**
-
-<!-- -->
-
-- Ürün listeleme cache’i
-
-- Sipariş idempotency anahtarları
-
-- Stok güncelleme kilidi
-
-- Rate limiting
-
-- Kısa süreli ödeme durumu
-
-- Cache invalidation  
-  Örnek anahtarlar:  
-  `product:10`  
-  `products:list:``{``filter_hash``}`  
-  `idempotency:order:``{``key``}`  
-  `lock:product-stock:``{``product_id``}`  
-  `rate-limit:customer:``{``customer_id``}`  
-  Redis kalıcı verinin ana kaynağı olmamalıdır.  
-    
-  **Hata formatı**  
-  Tüm endpointler ortak hata formatı dönmelidir:  
-  `{`  
-  `  "error": ``{`  
-  `    "code": "INSUFFICIENT_STOCK",`  
-  `    "message": "Talep edilen ``ü``r``ü``n i``ç``in yeterli stok bulunmuyor.",`  
-  `    "details": ``{`  
-  `      "product_id": 10,`  
-  `      "requested": 5,`  
-  `      "available": 2`  
-  `    ``}``,`  
-  `    "correlation_id": "12c26a80-a8eb-49db-821d-c10e27a68f28"`  
-  `  ``}`  
-  `}`  
-  Beklenen HTTP durum kodları:
-
-<!-- -->
-
-- `200`: Başarılı
-
-- `201`: Kayıt oluşturuldu
-
-- `400`: Hatalı istek
-
-- `404`: Kayıt bulunamadı
-
-- `409`: Stok veya state çakışması
-
-- `422`: Validation hatası
-
-- `429`: Rate limit
-
-- `500`: Beklenmeyen hata  
-    
-  **Teknik beklentiler**
-
-<!-- -->
-
-- Proje tek komutla Docker üzerinde ayağa kalkmalıdır.
-
-- Migration ve seed dosyaları bulunmalıdır.
-
-- En az birkaç örnek müşteri, kategori ve ürün eklenmelidir.
-
-- Controller sınıfları ince tutulmalıdır.
-
-- İş kuralları service/use-case katmanında bulunmalıdır.
-
-- Request ve response modelleri entity modellerinden ayrılmalıdır.
-
-- Global exception handler kullanılmalıdır.
-
-- Loglarda correlation ID bulunmalıdır.
-
-- Birim ve entegrasyon testleri yazılmalıdır.
-
-- API dokümantasyonu Swagger/OpenAPI ile sunulmalıdır.
-
-- Şifre ve bağlantı bilgileri kaynak koda yazılmamalıdır.
-
-- RabbitMQ consumer’ları retry ve Dead Letter Queue desteklemelidir.  
-  **Minimum test senaryoları**
-
-1.  Başarılı sipariş oluşturma
-
-2.  Yetersiz stokla sipariş oluşturma
-
-3.  Aynı idempotency anahtarıyla iki istek gönderme
-
-4.  Ödeme stratejisinin doğru seçilmesi
-
-5.  Başarısız ödeme sonrasında sipariş durumunun güncellenmesi
-
-6.  İzin verilmeyen sipariş durum geçişi
-
-7.  Aynı RabbitMQ event’inin iki kez tüketilmesi
-
-8.  Polymorphic dosya ilişkisinin ürün ve sipariş için çalışması
-
-9.  Outbox kaydı oluşmadan event yayınlanmaması
-
-10. Transaction başarısız olduğunda siparişin yarım kaydedilmemesi  
-    **Bonus görevler**
-
-- Coupon/discount modülü geliştirilmesi
-
-- İndirimlerin ürün veya kategoriye polymorphic olarak bağlanması
-
-- Optimistic locking uygulanması
-
-- OpenTelemetry veya benzeri tracing eklenmesi
-
-- Prometheus metriklerinin sunulması
-
-- Saga yaklaşımıyla başarısız ödeme sonrası stok rezervasyonunun geri
-  alınması
-
-- API authentication ve role-based authorization eklenmesi
-
-
-## Swagger / OpenAPI
-
-OpenAPI, endpointlerin parametrelerini, istek/yanıt modellerini ve HTTP işlemlerini
-tanımlayan standarttır. Swagger UI bu dokümanı tarayıcıda gösterir ve API'ye
-istek göndermeni sağlar. Bu projede `springdoc-openapi-starter-webmvc-ui:3.1.1`
-controller ve DTO'lardan dokümanı otomatik üretir (Spring Boot 4 için springdoc 3.x).
-
-Uygulama çalışırken:
-
-- Swagger UI: http://localhost:8080/swagger-ui.html
-- OpenAPI JSON: http://localhost:8080/v3/api-docs
-
-Örneğin Swagger UI'da `GET /api/v1/products` işlemini aç, **Try it out** seç,
-parametreleri gir ve **Execute** ile isteği gönder. Yanıt kodunu ve JSON gövdesini
-aynı ekranda görebilirsin. POST/PUT/PATCH/DELETE işlemleri gerçek verileri değiştirir.
-
-Kurulumun temel adımı `pom.xml` dosyasına springdoc bağımlılığını eklemektir.
-`OpenApiConfig` başlık, sürüm ve açıklamayı belirler; `springdoc.paths-to-match`
-dokümana `/api/v1/**` endpointlerini dahil eder. Temel doküman için controller'lara
-ek annotation gerekmez. Daha ayrıntılı açıklamalar için `@Tag` (gruplama),
-`@Operation` (işlem açıklaması), `@ApiResponse` (yanıt kodu/modeli) ve
-`@Schema` (alan açıklaması/örneği) kullanılabilir. Otomatik dokümanı gerçek API
-davranışıyla karşılaştırmak gerekir; özellikle özel hata kodları ek açıklama isteyebilir.
-
-Resmi kurulum: https://springdoc.org/getting-started.html
-
-## Yerel environment yapılandırması
-
-### Geliştirme için seed data
-
-`dev` profili açıldığında Liquibase 8 kategori, 24 müşteri, 48 ürün ve 30 müşteri
-adresi ekler (`seed/realistic-seed.sql`). Gerçekçi ürün adları, farklı fiyatlar,
-aktif/pasif kayıtlar ve stoksuz ürünler bulunur. Müşteriler ve adresler kurgusaldır;
-e-postalar `example.com` kullanır. Fiyatlar güncel piyasa fiyatı iddiası taşımaz.
-Sipariş, ödeme ve kargo verileri henüz eklenmez.
-
-Environment değişkenlerini aşağıdaki gibi yükledikten sonra yerel Java uygulaması:
-
-```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+# E-Commerce Management API
+
+Spring Boot ile geliştirilmiş, sipariş ve ödeme yaşam döngüsüne odaklanan bir e-ticaret yönetim API'si.
+
+Proje; ürün, kategori, müşteri ve adres yönetiminin yanında stok rezervasyonu, kontrollü sipariş durum geçişleri, asenkron ödeme callback'i, ödeme iadesi ve Transactional Outbox için event kaydı gibi gerçek dünya problemlerini ele alır.
+
+> Proje aktif olarak geliştirilmektedir. Tamamlanan ve planlanan çalışmalar [ROADMAP.md](ROADMAP.md) dosyasında takip edilir.
+
+## Öne Çıkan Özellikler
+
+- Kategori, müşteri, adres ve ürün yönetimi
+- Sayfalama, filtreleme, arama ve sıralama
+- Transaction içinde atomik stok rezervasyonu
+- Sipariş kalemlerinde ürün adı, SKU ve fiyat snapshot'ı
+- Kontrollü sipariş durum geçişleri ve durum geçmişi
+- Ödeme yöntemleri için Strategy ve Factory yapısı
+- Ayrı bir dummy ödeme sağlayıcısıyla HTTP tabanlı entegrasyon
+- Asenkron ödeme sonucu callback'i
+- Başarısız ödemede stok telafisi
+- İdempotent ödeme iadesi
+- Sipariş ve ödeme eventlerinin Transactional Outbox tablosuna kaydedilmesi
+- Liquibase migration ve geliştirme ortamı için seed data
+- Standart hata modeli ve request correlation ID
+- Swagger UI / OpenAPI dokümantasyonu
+- Docker Compose ile MySQL, Redis ve RabbitMQ altyapısı
+- Controller, service, repository ve entegrasyon testleri
+
+## Teknoloji Yığını
+
+| Alan | Teknoloji |
+| --- | --- |
+| Dil | Java 21 |
+| Framework | Spring Boot 4.1.1 |
+| Web | Spring Web MVC |
+| Veri erişimi | Spring Data JPA, Hibernate |
+| Veritabanı | MySQL 8.4 |
+| Migration | Liquibase |
+| Cache / koordinasyon altyapısı | Redis 7.4 |
+| Mesajlaşma altyapısı | RabbitMQ 4 |
+| API dokümantasyonu | springdoc-openapi |
+| Test | JUnit, Mockito, Spring Boot Test, H2 |
+| Çalıştırma | Maven Wrapper, Docker, Docker Compose |
+
+## Mimari
+
+```mermaid
+flowchart LR
+    Client[API Client] --> API[E-Commerce Management API]
+    API --> DB[(MySQL)]
+    API -. planlanan cache ve idempotency .-> Redis[(Redis)]
+    DB --> Outbox[(Outbox Events)]
+    Outbox -. planlanan publisher .-> RabbitMQ[(RabbitMQ)]
+    API --> Payment[Dummy Payment Service]
+    Payment -->|async callback| API
 ```
 
-Tamamen Docker üzerinde çalıştırmak için:
+Uygulama katmanları `controller → service → repository` biçiminde ayrılmıştır. Request ve response DTO'ları entity modellerinden bağımsızdır. Sipariş oluşturma, stok rezervasyonu ve outbox kaydı aynı veritabanı transaction'ı içinde yürütülür.
+
+### Güncel geliştirme durumu
+
+| Özellik | Durum |
+| --- | --- |
+| CRUD ve listeleme API'leri | Tamamlandı |
+| Sipariş oluşturma, detay, durum ve iptal | Tamamlandı |
+| Dummy provider ile ödeme ve callback | Tamamlandı |
+| Refund ve ödeme/sipariş event kayıtları | Tamamlandı |
+| Redis tabanlı idempotency ve cache | Planlandı |
+| Outbox publisher, RabbitMQ retry ve DLQ | Planlandı |
+| Shipment strategy, attachment ve notification | Planlandı |
+
+Redis ve RabbitMQ servisleri geliştirme altyapısında hazırdır; ancak uygulama tarafındaki cache, publisher ve consumer akışları henüz tamamlanmamıştır.
+
+## Gereksinimler
+
+- JDK 21 veya üzeri
+- Docker ve Docker Compose
+- Git
+
+Maven'ın ayrıca kurulması gerekmez; proje Maven Wrapper içerir.
+
+## Hızlı Başlangıç
+
+### 1. Projeyi klonlayın
 
 ```bash
-SPRING_PROFILES_ACTIVE=dev docker compose up -d --build
+git clone https://github.com/berkeroner/ecommerce_management.git
+cd ecommerce_management
 ```
 
-IDE'de run configuration'ın active profiles alanına `dev` yazabilirsin.
-Normal profil seed kayıt yüklemez. Liquibase seed değişikliğini bir kez uygular;
-yeniden başlatmalarda kayıtlar çoğalmaz. Mevcut eşleşen e-posta, slug ve SKU
-kayıtları değiştirilmez; ilişkiler sabit ID yerine bu alanlardan çözülür.
-Profil kapatıldığında daha önce eklenen veriler silinmez. Gerçek veritabanında
-`dev` profilini açma. Örnek API: `/api/v1/products?search=laptop&limit=3`.
+### 2. Ortam dosyasını oluşturun
 
-Seed için Liquibase zorunlu değildir. Az sayıda manuel kayıt için REST API,
-toplu aktarım için CSV + Liquibase `loadData`, service kurallarını çalıştırmak için
-`@Profile("dev")` ile sınırlandırılmış `ApplicationRunner`, binlerce kayıt için
-ayrı bir veri üretim/aktarım aracı kullanılabilir. Bu projede sürümlü, bir kez
-uygulanan ve mevcut kayıtları koruyan bir başlangıç verisi için Liquibase seçildi.
+```bash
+cp .env.example .env
+```
 
-Uygulama ve Liquibase Maven eklentisi bağlantı bilgilerini environment
-değişkenlerinden alır. Compose da aynı MySQL/RabbitMQ kullanıcı ve şifre
-değişkenlerini kullanır. Gerçek şifreler repoya eklenmez.
+`.env` içindeki aşağıdaki üç boş şifreyi doldurun:
 
-1. `cp .env.example .env` komutuyla yerel dosyanı oluştur.
-2. `.env` içindeki üç boş şifreyi doldur. Dosya Git tarafından ignore edilir.
-   Boşluk veya özel karakter içeren değerleri tek tırnak içine al.
-3. Altyapıyı `docker compose up -d mysql redis rabbitmq` ile başlat. Compose `.env` dosyasını otomatik okur.
-4. Java uygulamasını terminalden çalıştırmak için değişkenleri yükle:
+```dotenv
+MYSQL_ROOT_PASSWORD=your_root_password
+ECOMMERCE_DB_PASSWORD=your_database_password
+ECOMMERCE_RABBITMQ_PASSWORD=your_rabbitmq_password
+```
+
+`.env` Git tarafından takip edilmez. Gerçek şifreleri veya erişim bilgilerini repoya eklemeyin.
+
+### 3. Altyapıyı başlatın
+
+```bash
+docker compose up -d mysql redis rabbitmq
+```
+
+Servis durumlarını kontrol etmek için:
+
+```bash
+docker compose ps
+```
+
+### 4. Ortam değişkenlerini yükleyin
+
+Spring Boot `.env` dosyasını kendiliğinden okumaz. Terminal oturumu için değişkenleri yükleyin:
 
 ```bash
 set -a
 source .env
 set +a
+```
+
+### 5. Uygulamayı çalıştırın
+
+Örnek verilerle çalıştırmak için `dev` profilini kullanın:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+API varsayılan olarak `http://localhost:8080` adresinde açılır.
+
+`dev` profili Liquibase üzerinden 8 kategori, 24 müşteri, 48 ürün ve 30 müşteri adresi ekler. Seed kayıtları geliştirme amaçlıdır ve gerçek üretim verisi olarak kullanılmamalıdır.
+
+## Dummy Ödeme Servisi
+
+Ödeme akışını uçtan uca deneyebilmek için ayrı çalışan [dummy-payment-service](https://github.com/berkeroner/dummy-payment-service) gereklidir.
+
+Yeni bir terminalde:
+
+```bash
+git clone https://github.com/berkeroner/dummy-payment-service.git
+cd dummy-payment-service
 ./mvnw spring-boot:run
 ```
 
-Spring Boot ve Maven `.env` dosyasını kendiliğinden okumaz. IDE'den çalıştırırken
-aynı değişkenleri Java run configuration'ın environment alanına gir veya IDE'nin
-desteklediği env-file ayarını kullan. Liquibase Maven komutlarını da değişkenleri
-yüklediğin terminalden çalıştır.
+Varsayılan yerel adresler:
 
-Örnek dosyadaki host/port değerleri Java'nın bilgisayarında, MySQL/Redis/RabbitMQ'nun
-Docker'da çalıştığı düzen içindir. MySQL portunu/veritabanı adını değiştirirsen
-`ECOMMERCE_DB_URL` değerini de eşleştir. Eksik zorunlu ayarlar için kaynak kodda
-varsayılan bağlantı/şifre bulunmaz.
+| Servis | Adres |
+| --- | --- |
+| E-Commerce Management API | `http://localhost:8080` |
+| Dummy Payment Service | `http://localhost:8081` |
+| Payment callback | `http://localhost:8080/api/v1/payments/callback` |
 
-Mevcut Docker volume'larında kullanıcı ve şifreler zaten oluşturulmuş olabilir.
-`.env` dosyasına mevcut geçerli bilgileri gir; environment değerini değiştirmek
-mevcut veritabanı kullanıcısının şifresini değiştirmez. Veri volume'larını silme.
+Ana uygulamanın provider adresi gerektiğinde değiştirilebilir:
 
-Testler `application-test.properties` üzerinden H2 ve yalnızca teste özel
-ayarlarla çalışır; `.env` gerektirmez:
+```dotenv
+DUMMY_PAYMENT_BASE_URL=http://localhost:8081
+```
+
+Dummy servis ödeme isteğini önce `PROCESSING` olarak kabul eder; kısa bir beklemenin ardından sonucu `APPROVED` veya `REJECTED` olarak belirleyip callback gönderir.
+
+## Tamamen Docker ile Çalıştırma
+
+Uygulama ve altyapıyı birlikte ayağa kaldırmak için:
+
+```bash
+SPRING_PROFILES_ACTIVE=dev docker compose up -d --build
+```
+
+Bu Compose dosyası ana API, MySQL, Redis ve RabbitMQ servislerini başlatır. Dummy ödeme sağlayıcısı ayrı bir projedir; ödeme entegrasyonu geliştirirken iki Java uygulamasını host üzerinde çalıştırmak en basit yerel geliştirme düzenidir.
+
+Servisleri durdurmak için:
+
+```bash
+docker compose down
+```
+
+Veritabanı verisini korumak istiyorsanız `-v` kullanmayın. `docker compose down -v` kalıcı volume'ları da siler.
+
+## API Dokümantasyonu
+
+Uygulama çalışırken:
+
+- Swagger UI: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+- OpenAPI JSON: [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+
+Swagger UI üzerinden endpointleri inceleyebilir ve doğrudan istek gönderebilirsiniz.
+
+## Endpoint Özeti
+
+### Kategoriler
+
+| Method | Endpoint | Açıklama |
+| --- | --- | --- |
+| `GET` | `/api/v1/categories` | Kategorileri listeler |
+| `GET` | `/api/v1/categories/{id}` | Kategori detayını getirir |
+| `POST` | `/api/v1/categories` | Kategori oluşturur |
+| `PUT` | `/api/v1/categories/{id}` | Kategoriyi günceller |
+| `DELETE` | `/api/v1/categories/{id}` | Kategoriyi siler |
+
+### Müşteriler ve Adresler
+
+| Method | Endpoint | Açıklama |
+| --- | --- | --- |
+| `GET` | `/api/v1/customers` | Sayfalı müşteri listesi |
+| `GET` | `/api/v1/customers/{id}` | Müşteri detayını getirir |
+| `POST` | `/api/v1/customers` | Müşteri oluşturur |
+| `PUT` | `/api/v1/customers/{id}` | Müşteriyi günceller |
+| `PATCH` | `/api/v1/customers/{id}/status` | Müşteri durumunu değiştirir |
+| `GET` | `/api/v1/customers/{customerId}/addresses` | Müşteri adreslerini listeler |
+| `GET` | `/api/v1/customers/{customerId}/addresses/{id}` | Adres detayını getirir |
+| `POST` | `/api/v1/customers/{customerId}/addresses` | Adres oluşturur |
+| `PUT` | `/api/v1/customers/{customerId}/addresses/{id}` | Adresi günceller |
+| `DELETE` | `/api/v1/customers/{customerId}/addresses/{id}` | Adresi siler |
+
+Müşteri listesi `page`, `limit`, `status` ve `search` parametrelerini destekler.
+
+### Ürünler
+
+| Method | Endpoint | Açıklama |
+| --- | --- | --- |
+| `GET` | `/api/v1/products` | Sayfalı ürün listesi |
+| `GET` | `/api/v1/products/{id}` | Ürün detayını getirir |
+| `POST` | `/api/v1/products` | Ürün oluşturur |
+| `PUT` | `/api/v1/products/{id}` | Ürünü günceller |
+| `PATCH` | `/api/v1/products/{id}/status` | Ürün durumunu değiştirir |
+| `PATCH` | `/api/v1/products/{id}/stock` | Stok miktarını günceller |
+
+Ürün listesi şu query parametrelerini destekler:
+
+| Parametre | Açıklama | Örnek |
+| --- | --- | --- |
+| `page` | Sayfa numarası, 1'den başlar | `1` |
+| `limit` | Sayfa boyutu | `20` |
+| `category_id` | Kategori filtresi | `3` |
+| `status` | `active` veya `passive` | `active` |
+| `search` | Ürün adı veya SKU araması | `laptop` |
+| `sort` | Alan ve yön | `price,asc` |
+
+Örnek:
+
+```http
+GET /api/v1/products?page=1&limit=10&status=active&search=laptop&sort=price,asc
+```
+
+### Siparişler ve Ödemeler
+
+| Method | Endpoint | Açıklama |
+| --- | --- | --- |
+| `POST` | `/api/v1/orders` | Sipariş oluşturur ve stok rezerve eder |
+| `GET` | `/api/v1/orders/{id}` | Sipariş detayını getirir |
+| `GET` | `/api/v1/orders/{id}/status` | Sipariş durumunu getirir |
+| `POST` | `/api/v1/orders/{id}/cancel` | Siparişi iptal eder ve stoğu geri bırakır |
+| `POST` | `/api/v1/orders/{id}/payments` | Dummy provider üzerinden ödeme başlatır |
+| `POST` | `/api/v1/payments/{id}/refund` | Tamamlanmış ödemeyi iade eder |
+| `POST` | `/api/v1/payments/callback` | Provider ödeme sonucunu kabul eder |
+
+Callback endpoint'i servisler arası entegrasyon içindir; normal istemci akışında doğrudan çağrılmaz.
+
+## Örnek Sipariş ve Ödeme Akışı
+
+### 1. Sipariş oluşturma
+
+```bash
+curl --request POST http://localhost:8080/api/v1/orders \
+  --header "Content-Type: application/json" \
+  --header "X-Correlation-ID: demo-order-001" \
+  --data '{
+    "customer_id": 1,
+    "payment_method": "credit_card",
+    "shipping_provider": "mock",
+    "shipping_address_id": 1,
+    "billing_address_id": 2,
+    "items": [
+      {
+        "product_id": 1,
+        "quantity": 2
+      }
+    ]
+  }'
+```
+
+`shipping_address_id` müşterinin kayıtlı teslimat adresini belirtir. Fatura adresi
+farklıysa `billing_address_id` gönderilir; gönderilmezse teslimat adresi fatura
+adresi olarak da kullanılır. Her iki adres sipariş anındaki haliyle siparişe
+kopyalanır; müşteri daha sonra kayıtlı adresini değiştirse bile geçmiş sipariş
+değişmez.
+
+Örnek `201 Created` yanıtı:
+
+```json
+{
+  "data": {
+    "id": 42,
+    "order_no": "ORD-550e8400-e29b-41d4-a716-446655440000",
+    "status": "processing",
+    "total_amount": 37999.80,
+    "currency": "TRY"
+  }
+}
+```
+
+Örnekteki müşteri ve ürün ID'lerini kendi veritabanınızdaki aktif kayıtlarla değiştirin.
+
+Sipariş oluşturulurken ürün fiyatı ve kimlik bilgileri sipariş kalemine snapshot olarak yazılır; stok atomik olarak azaltılır ve `order.created` event'i outbox tablosuna eklenir.
+
+### 2. Ödeme başlatma
+
+Dummy ödeme servisi çalışırken:
+
+```bash
+curl --request POST http://localhost:8080/api/v1/orders/42/payments \
+  --header "Content-Type: application/json" \
+  --data '{
+    "method": "credit_card",
+    "payment_token": "mock-token-123"
+  }'
+```
+
+API `202 Accepted` ile `processing` durumundaki ödeme kaydını döner. Dummy servis callback gönderdiğinde:
+
+- `APPROVED`: ödeme `completed`, sipariş `confirmed` olur.
+- `REJECTED`: ödeme ve sipariş `failed` olur, rezerve edilen stok geri bırakılır.
+
+Desteklenen ödeme yöntemleri:
+
+- `credit_card`
+- `bank_transfer`
+- `cash_on_delivery`
+
+## Hata Modeli
+
+API hataları ortak bir gövdeyle döner:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed",
+    "details": {
+      "items": [
+        "must not be empty"
+      ]
+    },
+    "correlation_id": "demo-order-001"
+  }
+}
+```
+
+İsteklerde `X-Correlation-ID` header'ı gönderilebilir. Header verilmezse uygulama bir değer üretir; bu değer response header'ına, hata gövdesine ve loglara taşınır.
+
+Başlıca HTTP durum kodları:
+
+| Kod | Kullanım |
+| --- | --- |
+| `200` | Başarılı okuma veya güncelleme |
+| `201` | Kaynak oluşturuldu |
+| `202` | Ödeme işlenmek üzere kabul edildi |
+| `204` | Gövdesiz başarılı yanıt |
+| `400` | Bozuk veya semantik olarak geçersiz istek |
+| `404` | Kaynak bulunamadı |
+| `409` | Stok, unique alan veya durum geçişi çakışması |
+| `422` | DTO validation hatası |
+| `500` | Beklenmeyen sunucu hatası |
+
+## Veritabanı ve Migration
+
+Şema Liquibase tarafından yönetilir:
+
+```text
+src/main/resources/db/changelog/
+├── db.changelog-master.yaml
+├── changes/
+│   └── 001-initial-schema.yaml
+└── seed/
+    └── realistic-seed.sql
+```
+
+Hibernate `ddl-auto=validate` modunda çalışır; şemayı değiştirmez, entity ve migration uyumunu doğrular.
+
+Başlıca tablolar:
+
+- `customers`, `categories`, `products`
+- `orders`, `order_items`, `order_status_histories`
+- `addresses`
+- `payments`, `shipments`, `attachments`
+- `outbox_events`
+
+Adresler `customer` veya `order`, ek dosya kayıtları ise `product`, `order` veya `payment` ile ilişkilendirilebilecek polymorphic şemaya sahiptir. Attachment ve shipment API'leri henüz geliştirme planındadır.
+
+## Testler
+
+Testler H2 ve teste özel yapılandırmayla çalışır; `.env`, MySQL, Redis veya RabbitMQ gerektirmez:
 
 ```bash
 ./mvnw clean test
 ```
+
+Test kapsamı controller sözleşmeleri, service iş kuralları, repository sorguları, sipariş transaction'ları, stok telafisi, ödeme callback'i, rollback davranışı, seed data ve OpenAPI üretimini içerir.
+
+## Proje Yapısı
+
+```text
+src/main/java/com/ecommerce/management/
+├── client/         # Dış servis istemcileri
+├── config/         # OpenAPI ve uygulama yapılandırmaları
+├── controller/     # REST API katmanı
+├── dto/            # Request ve response modelleri
+├── entity/         # JPA entity ve enum modelleri
+├── payment/        # Payment Strategy implementasyonları ve factory
+├── repository/     # Spring Data repository katmanı
+├── service/        # İş kuralları ve transaction sınırları
+└── web/            # Hata yönetimi ve correlation ID filtresi
+```
+
+## Yol Haritası
+
+Yaklaşan başlıca çalışmalar:
+
+1. Redis tabanlı sipariş idempotency desteği
+2. Product cache ve cache invalidation
+3. Outbox publisher, RabbitMQ retry ve Dead Letter Queue
+4. Idempotent event consumer'ları
+5. Shipment strategy ve kargo yaşam döngüsü
+6. Attachment ve notification akışları
+7. Testcontainers, metrics ve tracing
+
+Ayrıntılı ve güncel görev listesi için [ROADMAP.md](ROADMAP.md) dosyasına bakın.
+
+## Güvenlik Notu
+
+Bu proje eğitim ve geliştirme amaçlıdır. Gerçek kart numarası, CVV veya hassas ödeme bilgisi kabul etmez ve saklamaz. Üretim kullanımı için authentication, authorization, secret management, rate limiting ve ek güvenlik kontrolleri gereklidir.

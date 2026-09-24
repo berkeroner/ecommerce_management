@@ -19,7 +19,6 @@ import com.ecommerce.management.dto.order.OrderItemRequest;
 import com.ecommerce.management.dto.order.OrderRequest;
 import com.ecommerce.management.dto.order.OrderResponse;
 import com.ecommerce.management.dto.order.OrderStatusResponse;
-import com.ecommerce.management.dto.order.OrderShippingAddressRequest;
 import com.ecommerce.management.entity.Address;
 import com.ecommerce.management.entity.Customer;
 import com.ecommerce.management.entity.Order;
@@ -84,6 +83,12 @@ public class OrderService {
                     "Customer is not active"
             );
         }
+
+        Address shippingAddress = getCustomerAddress(
+                customer.getId(), request.shippingAddressId(), AddressType.SHIPPING);
+        Address billingAddress = request.billingAddressId() == null
+                ? shippingAddress
+                : getCustomerAddress(customer.getId(), request.billingAddressId(), AddressType.BILLING);
 
         Map<Long, Integer> quantities = new TreeMap<>();
 
@@ -183,7 +188,8 @@ public class OrderService {
 
         orderItemRepository.saveAll(orderItems);
 
-        saveShippingAddress(order, request.shippingAddress(), now);
+        saveAddressSnapshot(order, shippingAddress, AddressType.SHIPPING, now);
+        saveAddressSnapshot(order, billingAddress, AddressType.BILLING, now);
         saveInitialHistory(order, now);
         saveCreatedEvent(order, request, now);
 
@@ -270,24 +276,36 @@ public class OrderService {
         return toResponse(order);
     }
 
-    private void saveShippingAddress(
+    private Address getCustomerAddress(Long customerId, Long addressId, AddressType expectedType) {
+        Address address = addressRepository.findByIdAndAddressableTypeAndAddressableId(
+                        addressId, AddressableType.CUSTOMER, customerId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Address not found for customer: " + addressId));
+
+        if (address.getAddressType() != expectedType) {
+            throw new ResponseStatusException(
+                    HttpStatus.valueOf(422),
+                    "Address " + addressId + " must have type " + expectedType);
+        }
+        return address;
+    }
+
+    private void saveAddressSnapshot(
             Order order,
-            OrderShippingAddressRequest request,
+            Address source,
+            AddressType snapshotType,
             LocalDateTime now
     ) {
         Address address = new Address();
         address.setAddressableType(AddressableType.ORDER);
         address.setAddressableId(order.getId());
-        address.setAddressType(AddressType.SHIPPING);
-        address.setTitle(request.title().trim());
-        address.setCity(request.city().trim());
-        address.setDistrict(request.district().trim());
-        address.setAddressLine(request.addressLine().trim());
-        address.setPostalCode(
-                request.postalCode() == null
-                        ? null
-                        : request.postalCode().trim()
-        );
+        address.setAddressType(snapshotType);
+        address.setTitle(source.getTitle());
+        address.setCity(source.getCity());
+        address.setDistrict(source.getDistrict());
+        address.setAddressLine(source.getAddressLine());
+        address.setPostalCode(source.getPostalCode());
         address.setCreatedAt(now);
         address.setUpdatedAt(now);
 

@@ -38,8 +38,7 @@ class CategoryServiceTest {
 
     @Test
     void shouldCreateCategory() {
-        CategoryRequest request = new CategoryRequest(
-                " Elektronik ", " Elektronik ", true);
+        CategoryRequest request = new CategoryRequest(" Elektronik ");
 
         when(categoryRepository.existsBySlug("elektronik")).thenReturn(false);
         when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> {
@@ -59,8 +58,7 @@ class CategoryServiceTest {
 
     @Test
     void shouldReturnConflictWhenSlugAlreadyExists() {
-        CategoryRequest request = new CategoryRequest(
-                "Elektronik", "elektronik", true);
+        CategoryRequest request = new CategoryRequest("Elektronik");
 
         when(categoryRepository.existsBySlug("elektronik")).thenReturn(true);
 
@@ -85,9 +83,8 @@ class CategoryServiceTest {
 
     @Test
     void shouldUpdateCategory() {
-        Category category = category(1L, "Elektronik", "elektronik", true);
-        CategoryRequest request = new CategoryRequest(
-                " Bilgisayar ", " Bilgisayar ", false);
+        Category category = category(1L, "Elektronik", "elektronik", false);
+        CategoryRequest request = new CategoryRequest(" Bilgisayar ");
 
         when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
         when(categoryRepository.existsBySlugAndIdNot("bilgisayar", 1L)).thenReturn(false);
@@ -99,6 +96,36 @@ class CategoryServiceTest {
         assertEquals("bilgisayar", response.slug());
         assertFalse(response.isActive());
         verify(categoryRepository).save(category);
+    }
+
+    @Test
+    void shouldGenerateUrlSafeSlugFromTurkishCategoryName() {
+        CategoryRequest request = new CategoryRequest(" Kişisel Bakım & Sağlık ");
+
+        when(categoryRepository.existsBySlug("kisisel-bakim-saglik")).thenReturn(false);
+        when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> {
+            Category category = invocation.getArgument(0);
+            category.setId(1L);
+            return category;
+        });
+
+        CategoryResponse response = categoryService.create(request);
+
+        assertEquals("Kişisel Bakım & Sağlık", response.name());
+        assertEquals("kisisel-bakim-saglik", response.slug());
+        assertEquals(true, response.isActive());
+    }
+
+    @Test
+    void shouldRejectCategoryNameThatCannotProduceSlug() {
+        CategoryRequest request = new CategoryRequest("😊");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> categoryService.create(request));
+
+        assertEquals(HttpStatus.valueOf(422), exception.getStatusCode());
+        verify(categoryRepository, never()).save(any(Category.class));
     }
 
     @Test

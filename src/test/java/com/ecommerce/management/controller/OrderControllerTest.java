@@ -42,11 +42,9 @@ class OrderControllerTest {
               "customer_id": 1,
               "payment_method": "credit_card",
               "shipping_provider": "mock",
-              "items": [{"product_id": 10, "quantity": 2}],
-              "shipping_address": {
-                "title": "Ev", "city": "İstanbul", "district": "Kadıköy",
-                "address_line": "Test Sokak No: 1", "postal_code": "34710"
-              }
+              "shipping_address_id": 20,
+              "billing_address_id": 21,
+              "items": [{"product_id": 10, "quantity": 2}]
             }
             """;
 
@@ -72,7 +70,8 @@ class OrderControllerTest {
         assertEquals(1, request.items().size());
         assertEquals(10L, request.items().get(0).productId());
         assertEquals(2, request.items().get(0).quantity());
-        assertEquals("Test Sokak No: 1", request.shippingAddress().addressLine());
+        assertEquals(20L, request.shippingAddressId());
+        assertEquals(21L, request.billingAddressId());
     }
 
     @ParameterizedTest
@@ -82,7 +81,8 @@ class OrderControllerTest {
             "\"shipping_provider\": \"\"",
             "\"product_id\": 0",
             "\"quantity\": 0",
-            "\"city\": \"\""
+            "\"shipping_address_id\": 0",
+            "\"billing_address_id\": 0"
     })
     void shouldRejectInvalidRequestWithoutCallingService(String replacement) throws Exception {
         String field = replacement.substring(0, replacement.indexOf(':'));
@@ -109,7 +109,7 @@ class OrderControllerTest {
     }
 
     @Test
-    void shouldRejectMissingShippingAddress() throws Exception {
+    void shouldRejectMissingShippingAddressId() throws Exception {
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
