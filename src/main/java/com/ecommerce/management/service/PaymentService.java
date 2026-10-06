@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -18,8 +17,7 @@ import com.ecommerce.management.client.DummyPaymentClient;
 import com.ecommerce.management.dto.payment.PaymentRequest;
 import com.ecommerce.management.dto.payment.PaymentResponse;
 import com.ecommerce.management.dto.payment.provider.DummyPaymentAcceptedResponse;
-import com.ecommerce.management.dto.payment.provider.DummyPaymentItemRequest;
-import com.ecommerce.management.dto.payment.provider.DummyPaymentRequest;
+import com.ecommerce.management.dto.payment.provider.DummyRefundResponse;
 import com.ecommerce.management.dto.payment.provider.PaymentCallbackRequest;
 import com.ecommerce.management.dto.payment.provider.ProviderPaymentStatus;
 import com.ecommerce.management.entity.Order;
@@ -29,14 +27,10 @@ import com.ecommerce.management.entity.Payment;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.OutboxStatus;
 import com.ecommerce.management.entity.enums.PaymentStatus;
-import com.ecommerce.management.payment.PaymentStrategy;
-import com.ecommerce.management.payment.PaymentStrategyFactory;
-import com.ecommerce.management.repository.OrderItemRepository;
 import com.ecommerce.management.repository.OrderRepository;
 import com.ecommerce.management.repository.OrderStatusHistoryRepository;
 import com.ecommerce.management.repository.OutboxEventRepository;
 import com.ecommerce.management.repository.PaymentRepository;
-import com.ecommerce.management.repository.ProductRepository;
 
 import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.ObjectMapper;
@@ -45,78 +39,26 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class PaymentService {
 
-    private static final EnumSet<PaymentStatus> ACTIVE_STATUSES = EnumSet.of(
-            PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.COMPLETED);
-
     private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository;
-    private final ProductRepository productRepository;
     private final PaymentRepository paymentRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final OutboxEventRepository outboxEventRepository;
-    private final PaymentStrategyFactory strategyFactory;
     private final DummyPaymentClient dummyPaymentClient;
+    private final PaymentInitiationService paymentInitiationService;
     private final ObjectMapper objectMapper;
 
-    @Transactional
     public PaymentResponse startPayment(Long orderId, PaymentRequest request) {
-        Order order = orderRepository.findByIdForUpdate(orderId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Order not found: " + orderId));
-
-        if (order.getStatus() != OrderStatus.PROCESSING) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Payment cannot be started for order status: " + order.getStatus());
+        var pending = paymentInitiationService.createPending(orderId, request);
+        try {
+            DummyPaymentAcceptedResponse providerResponse = dummyPaymentClient.createPayment(
+                    pending.idempotencyKey(), pending.providerRequest());
+            return paymentInitiationService.recordProviderAcceptance(
+                    pending.idempotencyKey(), providerResponse);
+        } catch (RuntimeException exception) {
+            paymentInitiationService.markSubmissionFailed(
+                    pending.idempotencyKey(), providerFailureReason(exception));
+            throw exception;
         }
-        if (paymentRepository.existsByOrderIdAndStatusIn(orderId, ACTIVE_STATUSES)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Order already has an active or completed payment");
-        }
-
-        List<DummyPaymentItemRequest> items = orderItemRepository.findAllByOrderId(orderId)
-                .stream()
-                .map(item -> new DummyPaymentItemRequest(
-                        item.getProductName(),
-                        item.getQuantity(),
-                        item.getUnitPrice()
-                ))
-                .toList();
-
-        if (items.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Order does not contain any items");
-        }
-
-        DummyPaymentAcceptedResponse providerResponse = dummyPaymentClient.createPayment(
-                new DummyPaymentRequest(
-                        order.getId().toString(),
-                        items,
-                        order.getCurrency()
-                )
-        );
-        validateProviderResponse(providerResponse, order);
-
-        LocalDateTime now = LocalDateTime.now();
-        Payment payment = new Payment();
-        payment.setOrder(order);
-        payment.setPaymentNo("PAY-" + UUID.randomUUID());
-        payment.setMethod(request.method());
-        payment.setProvider("dummy-payment-service");
-        payment.setStatus(PaymentStatus.PROCESSING);
-        payment.setAmount(order.getGrandTotal());
-        payment.setTransactionId(providerResponse.paymentId().toString());
-        payment.setFailureReason(null);
-        payment.setCreatedAt(now);
-        payment.setUpdatedAt(now);
-        payment = paymentRepository.save(payment);
-
-        savePaymentEvent(payment, "payment.requested", Map.of(
-                "order_id", order.getId(),
-                "method", payment.getMethod(),
-                "amount", payment.getAmount(),
-                "currency", order.getCurrency()), now);
-
-        return toResponse(payment);
     }
 
     @Transactional
@@ -128,10 +70,10 @@ public class PaymentService {
         }
 
         Payment payment = paymentRepository
-                .findByTransactionIdForUpdate(callback.paymentId().toString())
+                .findByIdempotencyKeyForUpdate(callback.idempotencyKey().toString())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
-                        "Payment not found for provider payment id: " + callback.paymentId()
+                        "Payment not found for idempotency key: " + callback.idempotencyKey()
                 ));
         Order order = payment.getOrder();
         validateCallback(callback, payment, order);
@@ -176,26 +118,13 @@ public class PaymentService {
             payment.setUpdatedAt(now);
             paymentRepository.save(payment);
 
-            releaseReservedStock(order, now);
-            transitionOrder(order, OrderStatus.FAILED,
-                    "Payment failed: " + failureReason, now);
             savePaymentEvent(payment, "payment.failed", Map.of(
                     "order_id", order.getId(),
+                    "idempotency_key", callback.idempotencyKey(),
                     "reason", failureReason), now);
         }
 
         return toResponse(payment);
-    }
-
-    private void releaseReservedStock(Order order, LocalDateTime now) {
-        orderItemRepository.findAllByOrderId(order.getId()).forEach(item -> {
-            int updated = productRepository.releaseStock(
-                    item.getProduct().getId(), item.getQuantity(), now);
-            if (updated != 1) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Stock could not be restored for product: " + item.getProduct().getId());
-            }
-        });
     }
 
     @Transactional
@@ -212,8 +141,21 @@ public class PaymentService {
                     "Payment cannot be refunded from status: " + payment.getStatus());
         }
 
-        PaymentStrategy strategy = strategyFactory.get(payment.getMethod());
-        String refundTransactionId = strategy.refund(payment);
+        UUID providerPaymentId;
+        try {
+            providerPaymentId = UUID.fromString(payment.getTransactionId());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "Payment does not have a valid provider payment id");
+        }
+        DummyRefundResponse providerResponse = dummyPaymentClient.refundPayment(
+                providerPaymentId, payment.getMethod());
+        if (providerResponse == null
+                || providerResponse.refundId() == null
+                || providerResponse.refundId().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY, "Payment provider returned an invalid refund result");
+        }
         LocalDateTime now = LocalDateTime.now();
         payment.setStatus(PaymentStatus.REFUNDED);
         payment.setUpdatedAt(now);
@@ -221,24 +163,20 @@ public class PaymentService {
 
         savePaymentEvent(payment, "payment.refunded", Map.of(
                 "order_id", payment.getOrder().getId(),
-                "refund_transaction_id", refundTransactionId), now);
+                "refund_transaction_id", providerResponse.refundId()), now);
         return toResponse(payment);
     }
 
-    private void validateProviderResponse(DummyPaymentAcceptedResponse response, Order order) {
-        if (response == null
-                || response.paymentId() == null
-                || response.status() != ProviderPaymentStatus.PROCESSING) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Payment provider returned an invalid result");
-        }
-        if (!order.getId().toString().equals(response.orderId())) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Payment provider returned a mismatched order id");
-        }
-    }
-
     private void validateCallback(PaymentCallbackRequest callback, Payment payment, Order order) {
+        if (!payment.getIdempotencyKey().equals(callback.idempotencyKey().toString())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Callback idempotency key does not match the payment");
+        }
+        if (payment.getTransactionId() != null
+                && !payment.getTransactionId().equals(callback.paymentId().toString())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Callback provider payment id does not match the payment");
+        }
         if (!order.getId().toString().equals(callback.orderId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Callback order id does not match the payment");
@@ -251,6 +189,17 @@ public class PaymentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Callback currency does not match the order");
         }
+        if (payment.getTransactionId() == null) {
+            payment.setTransactionId(callback.paymentId().toString());
+        }
+    }
+
+    private String providerFailureReason(RuntimeException exception) {
+        if (exception instanceof ResponseStatusException statusException
+                && statusException.getReason() != null) {
+            return statusException.getReason();
+        }
+        return "Payment provider request failed";
     }
 
     private void transitionOrder(Order order, OrderStatus newStatus, String reason, LocalDateTime now)

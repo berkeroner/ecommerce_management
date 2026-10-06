@@ -1,0 +1,26 @@
+databaseChangeLog:
+  - changeSet:
+      id: 20261006-1-payment-idempotency
+      author: codex
+      changes:
+        - addColumn:
+            tableName: payments
+            columns:
+              - column:
+                  name: idempotency_key
+                  type: VARCHAR(36)
+        - update:
+            tableName: payments
+            columns:
+              - column:
+                  name: idempotency_key
+                  valueComputed: UUID()
+            where: idempotency_key IS NULL
+        - addNotNullConstraint:
+            tableName: payments
+            columnName: idempotency_key
+            columnDataType: VARCHAR(36)
+        - addUniqueConstraint:
+            tableName: payments
+            columnNames: idempotency_key
+            constraintName: uk_payments_idempotency_key

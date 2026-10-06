@@ -49,6 +49,7 @@ class PaymentControllerTest {
                                 {
                                   "paymentId": "11111111-1111-1111-1111-111111111111",
                                   "orderId": "100",
+                                  "idempotencyKey": "22222222-2222-2222-2222-222222222222",
                                   "status": "APPROVED",
                                   "totalAmount": 500.00,
                                   "currency": "TRY",

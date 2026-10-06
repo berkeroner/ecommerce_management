@@ -1,0 +1,13 @@
+databaseChangeLog:
+  - changeSet:
+      id: 20261006-2-payment-timeout-index
+      author: codex
+      changes:
+        - createIndex:
+            tableName: payments
+            indexName: idx_payments_status_updated_at
+            columns:
+              - column:
+                  name: status
+              - column:
+                  name: updated_at

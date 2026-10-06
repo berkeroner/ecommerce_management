@@ -11,7 +11,10 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payments", uniqueConstraints = @UniqueConstraint(name = "uk_payments_payment_no", columnNames = "payment_no"))
+@Table(name = "payments", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_payments_payment_no", columnNames = "payment_no"),
+        @UniqueConstraint(name = "uk_payments_idempotency_key", columnNames = "idempotency_key")
+})
 @Getter @Setter @NoArgsConstructor
 public class Payment {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -31,6 +34,8 @@ public class Payment {
     private BigDecimal amount;
     @Column(name = "transaction_id", length = 190)
     private String transactionId;
+    @Column(name = "idempotency_key", nullable = false, length = 36)
+    private String idempotencyKey;
     @Column(name = "failure_reason", length = 500)
     private String failureReason;
     @Column(name = "paid_at")

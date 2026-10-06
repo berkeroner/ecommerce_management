@@ -131,8 +131,12 @@ standart cevap döner ve stok güncellemesi eşzamanlı isteklere karşı güven
 ## Faz 3 — Sipariş çekirdeği
 
 - [x] `POST /api/v1/orders` request/response DTO'larını oluştur.
-- [ ] README akışına uygun Redis `Idempotency-Key` kontrolü ekle; aynı anahtara
+- [x] README akışına uygun Redis `Idempotency-Key` kontrolü ekle; aynı anahtara
       önceki cevabı döndür ve eşzamanlı tekrar istekleri test et.
+- [ ] Gerçek Redis üzerinde eşzamanlı istek, TTL ve Lua compare-and-set
+      davranışlarını Testcontainers ile doğrula.
+- [ ] Veritabanı commit'i ile Redis `COMPLETED` kaydı arasındaki hata penceresini
+      kalıcı idempotency kaydı veya sipariş üzerindeki unique istemci anahtarıyla kapat.
 - [x] Müşteri, ürün, aktiflik ve stok doğrulamalarını yap.
 - [x] Stok rezervasyonunu transaction ve atomik stok güncellemesi veya Redis
       distributed lock ile güvenceye al; optimistic locking ek koruma olabilir.
@@ -149,6 +153,10 @@ stok ve transaction rollback testleri geçer.
 
 - [x] Docker Compose'a Redis ve RabbitMQ servislerini ekle.
 - [x] Redis idempotency süresi, başarısız işlem ve tekrar istek davranışlarını doğrula.
+- [ ] Sipariş ve ödeme request sözleşmesini sadeleştir; `payment_method`,
+      `payment_token` ve `shipping_provider` alanlarının tek bir sahibi olmasını sağla.
+- [ ] Ödeme başlatma akışında `PaymentStrategyFactory` kullanımını ve ödeme
+      yöntemine göre token/provider davranışını tamamla.
 - [ ] Product liste/detay cache ve mutation sonrası cache invalidation ekle.
 - [ ] Outbox publisher'ı retry bilgisiyle birlikte geliştir.
 - [ ] RabbitMQ exchange, queue, routing key, retry ve DLQ tanımlarını ekle.
@@ -213,21 +221,24 @@ oluşturmaz ve başarısız mesaj DLQ'ya gider.
 
 ## Şu an sıradaki iş
 
-Sipariş çekirdeği ve senkron ödeme akışı tamamlandı. Ödeme yöntemi
-request içindeki `PaymentMethod` ile seçiliyor; DI tabanlı factory uygun strategy'yi
-çözümlüyor. Başarılı/başarısız ödeme, stok telafisi, sipariş durum
-geçişleri, refund ve ilgili outbox kayıtları testlerle kapsanıyor.
+Sipariş çekirdeği, Redis tabanlı sipariş idempotency ve temel ödeme yaşam döngüsü
+tamamlandı. Başarılı/başarısız ödeme callback'i, stok telafisi, sipariş durum
+geçişleri, refund ve ilgili outbox kayıtları testlerle kapsanıyor. Sipariş ve ödeme
+requestlerinde ödeme yöntemi tekrar ediyor; `payment_token` henüz provider akışında
+kullanılmıyor ve ödeme başlatma işlemi strategy factory üzerinden ilerlemiyor.
 
-Son doğrulama: `./mvnw test` — 191 test geçti.
+Son doğrulama: `./mvnw test` — 179 test geçti.
 
 Sıradaki öncelikler:
 
-1. Outbox publisher ile RabbitMQ exchange/queue/routing key, retry ve DLQ altyapısı
-2. Eksik eventlerin üretilmesi ve idempotent consumer mekanizması
-3. Product cache/cache invalidation ve ertelenen optimistic locking çalışması
-4. Shipment strategy ve başarılı ödeme sonrası kargo oluşturma
-5. Attachment ve bildirim akışları
+1. Sipariş/ödeme request sözleşmesini sadeleştirme ve ödeme strategy akışını tamamlama
+2. Gerçek Redis entegrasyon testleri ve DB–Redis idempotency hata penceresini kapatma
+3. Outbox publisher ile RabbitMQ exchange/queue/routing key, retry ve DLQ altyapısı
+4. Eksik eventlerin üretilmesi ve idempotent consumer mekanizması
+5. Product cache/cache invalidation ve ertelenen optimistic locking çalışması
+6. Shipment strategy, attachment ve bildirim akışları
 
 Product optimistic locking ve eşzamanlılık testleri daha sonraya ertelendi;
-bu nedenle Faz 2'nin ilgili çıkış kriteri henüz tam karşılanmıyor. Faz 4'te
-mesaj yayınlama/tüketme altyapısı eksik.
+bu nedenle Faz 2'nin ilgili çıkış kriteri henüz tam karşılanmıyor. Faz 3'te gerçek
+Redis entegrasyon testi ve DB–Redis hata penceresi çalışması; Faz 4'te ise ödeme
+sözleşmesi ile mesaj yayınlama/tüketme altyapısı eksik.

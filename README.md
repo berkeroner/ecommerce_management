@@ -71,6 +71,9 @@ Uygulama katmanları `controller → service → repository` biçiminde ayrılm�
 | Shipment strategy, attachment ve notification | Planlandı |
 
 Redis sipariş oluşturma idempotency akışında kullanılmaktadır. Product cache ile RabbitMQ publisher ve consumer akışları henüz tamamlanmamıştır.
+İdempotency davranışı birim testleriyle kapsanmaktadır; gerçek Redis üzerinde
+eşzamanlılık/TTL entegrasyon testleri ve veritabanı commit'i ile Redis tamamlanma
+kaydı arasındaki hata penceresinin kalıcı kayıtla kapatılması planlanmaktadır.
 
 ## Gereksinimler
 
@@ -163,9 +166,14 @@ Ana uygulamanın provider adresi gerektiğinde değiştirilebilir:
 
 ```dotenv
 DUMMY_PAYMENT_BASE_URL=http://localhost:8081
+PAYMENT_PROCESSING_TIMEOUT=5m
+PAYMENT_TIMEOUT_SCAN_INTERVAL=30s
 ```
 
-Dummy servis ödeme isteğini önce `PROCESSING` olarak kabul eder; kısa bir beklemenin ardından sonucu `APPROVED` veya `REJECTED` olarak belirleyip callback gönderir.
+Dummy servis ödeme isteğini önce `PROCESSING` olarak kabul eder; kısa bir
+beklemenin ardından `APPROVED`, `REJECTED` veya callback gönderilmeyen bir sonuç
+üretir. Callback gelmeyen ödemeler varsayılan olarak 5 dakika sonra `FAILED`
+yapılır ve aynı sipariş için yeni ödeme denemesine izin verilir.
 
 ## Tamamen Docker ile Çalıştırma
 
@@ -341,7 +349,8 @@ curl --request POST http://localhost:8080/api/v1/orders/42/payments \
 API `202 Accepted` ile `processing` durumundaki ödeme kaydını döner. Dummy servis callback gönderdiğinde:
 
 - `APPROVED`: ödeme `completed`, sipariş `confirmed` olur.
-- `REJECTED`: ödeme ve sipariş `failed` olur, rezerve edilen stok geri bırakılır.
+- `REJECTED`: ödeme `failed` olur; sipariş `processing` durumunda ve stok
+  rezervasyonu korunarak yeni ödeme denemesine izin verilir.
 
 Desteklenen ödeme yöntemleri:
 
@@ -438,13 +447,14 @@ src/main/java/com/ecommerce/management/
 
 Yaklaşan başlıca çalışmalar:
 
-1. Redis tabanlı sipariş idempotency desteği
-2. Product cache ve cache invalidation
+1. Sipariş/ödeme request sözleşmesinin sadeleştirilmesi ve ödeme strategy akışının tamamlanması
+2. Redis idempotency entegrasyon testleri ve kalıcı idempotency güvencesi
 3. Outbox publisher, RabbitMQ retry ve Dead Letter Queue
 4. Idempotent event consumer'ları
-5. Shipment strategy ve kargo yaşam döngüsü
-6. Attachment ve notification akışları
-7. Testcontainers, metrics ve tracing
+5. Product cache ve cache invalidation
+6. Shipment strategy ve kargo yaşam döngüsü
+7. Attachment ve notification akışları
+8. Testcontainers, metrics ve tracing
 
 Ayrıntılı ve güncel görev listesi için [ROADMAP.md](ROADMAP.md) dosyasına bakın.
 

@@ -12,6 +12,7 @@ import jakarta.validation.constraints.NotNull;
 public record PaymentCallbackRequest(
         @JsonProperty("paymentId") @NotNull UUID paymentId,
         @JsonProperty("orderId") @NotBlank String orderId,
+        @JsonProperty("idempotencyKey") @NotNull UUID idempotencyKey,
         @NotNull ProviderPaymentStatus status,
         @JsonProperty("totalAmount") @NotNull @DecimalMin("0.01") BigDecimal totalAmount,
         @NotBlank String currency,
