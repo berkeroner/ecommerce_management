@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -15,6 +16,7 @@ import com.ecommerce.management.dto.order.OrderResponse;
 import com.ecommerce.management.dto.order.OrderStatusResponse;
 import com.ecommerce.management.dto.payment.PaymentRequest;
 import com.ecommerce.management.dto.payment.PaymentResponse;
+import com.ecommerce.management.service.OrderIdempotencyService;
 import com.ecommerce.management.service.OrderService;
 import com.ecommerce.management.service.PaymentService;
 
@@ -27,13 +29,17 @@ import lombok.RequiredArgsConstructor;
 public class OrderController {
 
     private final OrderService orderService;
+    private final OrderIdempotencyService orderIdempotencyService;
     private final PaymentService paymentService;
 
     @PostMapping
     public ResponseEntity<DataResponse<OrderResponse>> createOrder(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody OrderRequest request) {
-        OrderResponse response = orderService.createOrder(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(new DataResponse<>(response));
+        var result = orderIdempotencyService.createOrder(idempotencyKey, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .header("Idempotency-Replayed", Boolean.toString(result.replayed()))
+                .body(new DataResponse<>(result.response()));
     }
 
     @GetMapping("/{id}")

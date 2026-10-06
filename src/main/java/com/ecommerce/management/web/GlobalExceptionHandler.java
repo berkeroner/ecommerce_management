@@ -72,6 +72,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case 409 -> "CONFLICT";
             case 422 -> "VALIDATION_ERROR";
             case 429 -> "RATE_LIMIT_EXCEEDED";
+            case 503 -> "SERVICE_UNAVAILABLE";
             default -> status.is5xxServerError() ? "INTERNAL_ERROR" : "HTTP_" + status.value();
         };
     }
