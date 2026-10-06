@@ -135,30 +135,6 @@ public class PaymentInitiationService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean expireTimedOut(Long paymentId, LocalDateTime cutoff) {
-        Payment payment = paymentRepository.findByIdForUpdate(paymentId).orElse(null);
-        if (payment == null
-                || !EnumSet.of(PaymentStatus.PENDING, PaymentStatus.PROCESSING)
-                        .contains(payment.getStatus())
-                || !payment.getUpdatedAt().isBefore(cutoff)) {
-            return false;
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        String reason = "Payment provider callback timed out";
-        payment.setStatus(PaymentStatus.FAILED);
-        payment.setFailureReason(reason);
-        payment.setUpdatedAt(now);
-        paymentRepository.save(payment);
-        savePaymentEvent(payment, "payment.failed", Map.of(
-                "order_id", payment.getOrder().getId(),
-                "idempotency_key", payment.getIdempotencyKey(),
-                "reason", reason,
-                "timed_out", true), now);
-        return true;
-    }
-
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markSubmissionFailed(UUID idempotencyKey, String reason) {
         Payment payment = getByIdempotencyKey(idempotencyKey);
         if (payment.getStatus() != PaymentStatus.PENDING) {

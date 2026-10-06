@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import com.ecommerce.management.dto.payment.provider.DummyPaymentAcceptedRespons
 import com.ecommerce.management.dto.payment.provider.DummyRefundResponse;
 import com.ecommerce.management.dto.payment.provider.PaymentCallbackRequest;
 import com.ecommerce.management.dto.payment.provider.ProviderPaymentStatus;
+import com.ecommerce.management.dto.payment.provider.ProviderPaymentStatusResponse;
 import com.ecommerce.management.entity.Customer;
 import com.ecommerce.management.entity.Order;
 import com.ecommerce.management.entity.OrderItem;
@@ -53,7 +55,7 @@ class PaymentServiceIntegrationTest {
     @Autowired PaymentRepository paymentRepository;
     @Autowired OrderStatusHistoryRepository historyRepository;
     @Autowired OutboxEventRepository outboxEventRepository;
-    @Autowired PaymentTimeoutReconciler paymentTimeoutReconciler;
+    @Autowired PaymentStatusReconciler paymentStatusReconciler;
     @MockitoBean DummyPaymentClient dummyPaymentClient;
     @MockitoBean OrderItemRepository orderItemRepository;
 
@@ -167,7 +169,7 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    void shouldFailTimedOutPaymentAndAllowRetry() {
+    void shouldRecoverFinalStatusByPollingWhenCallbackIsMissing() {
         LocalDateTime now = LocalDateTime.now();
         Customer customer = customerRepository.save(customer(now));
         Order order = orderRepository.save(order(customer, now));
@@ -186,20 +188,26 @@ class PaymentServiceIntegrationTest {
 
         PaymentResponse firstAttempt = paymentService.startPayment(order.getId(),
                 new PaymentRequest(PaymentMethod.CREDIT_CARD, "secret-token"));
-        var stalePayment = paymentRepository.findById(firstAttempt.id()).orElseThrow();
-        stalePayment.setUpdatedAt(LocalDateTime.now().minusMinutes(10));
-        paymentRepository.saveAndFlush(stalePayment);
+        var processingPayment = paymentRepository.findById(firstAttempt.id()).orElseThrow();
+        UUID providerPaymentId = UUID.fromString(processingPayment.getTransactionId());
+        UUID idempotencyKey = UUID.fromString(processingPayment.getIdempotencyKey());
+        when(dummyPaymentClient.findPayment(providerPaymentId)).thenReturn(Optional.of(
+                new ProviderPaymentStatusResponse(
+                        providerPaymentId,
+                        order.getId().toString(),
+                        idempotencyKey,
+                        ProviderPaymentStatus.APPROVED,
+                        new BigDecimal("500.00"),
+                        "TRY",
+                        "Payment approved")));
 
-        paymentTimeoutReconciler.reconcile();
+        paymentStatusReconciler.reconcile();
 
-        var timedOutPayment = paymentRepository.findById(firstAttempt.id()).orElseThrow();
-        assertEquals(PaymentStatus.FAILED, timedOutPayment.getStatus());
-        assertEquals("Payment provider callback timed out", timedOutPayment.getFailureReason());
-
-        PaymentResponse retry = paymentService.startPayment(order.getId(),
-                new PaymentRequest(PaymentMethod.CREDIT_CARD, "new-token"));
-        assertEquals(PaymentStatus.PROCESSING, retry.status());
-        assertEquals(2, paymentRepository.count());
+        var reconciledPayment = paymentRepository.findById(firstAttempt.id()).orElseThrow();
+        assertEquals(PaymentStatus.COMPLETED, reconciledPayment.getStatus());
+        assertEquals(OrderStatus.CONFIRMED,
+                orderRepository.findById(order.getId()).orElseThrow().getStatus());
+        assertEquals(1, paymentRepository.count());
     }
 
     private Customer customer(LocalDateTime now) {

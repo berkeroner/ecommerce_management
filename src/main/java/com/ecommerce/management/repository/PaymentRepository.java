@@ -1,6 +1,5 @@
 package com.ecommerce.management.repository;
 
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -18,11 +17,22 @@ import jakarta.persistence.LockModeType;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
+    interface PollingCandidate {
+        Long getId();
+        String getTransactionId();
+        String getIdempotencyKey();
+        PaymentStatus getStatus();
+    }
+
     boolean existsByOrderIdAndStatusIn(Long orderId, Collection<PaymentStatus> statuses);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p join fetch p.order where p.id = :id")
     Optional<Payment> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Payment p where p.order.id = :orderId order by p.id")
+    List<Payment> findAllByOrderIdForUpdate(@Param("orderId") Long orderId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p join fetch p.order where p.transactionId = :transactionId")
@@ -34,12 +44,16 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             @Param("idempotencyKey") String idempotencyKey);
 
     @Query("""
-            select p.id from Payment p
-            where p.status in :statuses and p.updatedAt < :cutoff
-            order by p.updatedAt
+            select p.id as id,
+                   p.transactionId as transactionId,
+                   p.idempotencyKey as idempotencyKey,
+                   p.status as status
+            from Payment p
+            where p.status in :statuses and p.id > :afterId
+            order by p.id
             """)
-    List<Long> findTimedOutPaymentIds(
+    List<PollingCandidate> findStatusPollingCandidates(
             @Param("statuses") Collection<PaymentStatus> statuses,
-            @Param("cutoff") LocalDateTime cutoff,
+            @Param("afterId") Long afterId,
             Pageable pageable);
 }
