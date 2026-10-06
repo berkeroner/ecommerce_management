@@ -18,6 +18,7 @@ Proje; ürün, kategori, müşteri ve adres yönetiminin yanında stok rezervasy
 - Asenkron ödeme sonucu callback'i
 - Başarısız ödemede stok telafisi
 - İdempotent ödeme iadesi
+- Redis tabanlı idempotent sipariş oluşturma
 - Sipariş ve ödeme eventlerinin Transactional Outbox tablosuna kaydedilmesi
 - Liquibase migration ve geliştirme ortamı için seed data
 - Standart hata modeli ve request correlation ID
@@ -47,7 +48,7 @@ Proje; ürün, kategori, müşteri ve adres yönetiminin yanında stok rezervasy
 flowchart LR
     Client[API Client] --> API[E-Commerce Management API]
     API --> DB[(MySQL)]
-    API -. planlanan cache ve idempotency .-> Redis[(Redis)]
+    API -->|sipariş idempotency| Redis[(Redis)]
     DB --> Outbox[(Outbox Events)]
     Outbox -. planlanan publisher .-> RabbitMQ[(RabbitMQ)]
     API --> Payment[Dummy Payment Service]
@@ -64,11 +65,12 @@ Uygulama katmanları `controller → service → repository` biçiminde ayrılm�
 | Sipariş oluşturma, detay, durum ve iptal | Tamamlandı |
 | Dummy provider ile ödeme ve callback | Tamamlandı |
 | Refund ve ödeme/sipariş event kayıtları | Tamamlandı |
-| Redis tabanlı idempotency ve cache | Planlandı |
+| Redis tabanlı sipariş idempotency | Tamamlandı |
+| Redis tabanlı product cache | Planlandı |
 | Outbox publisher, RabbitMQ retry ve DLQ | Planlandı |
 | Shipment strategy, attachment ve notification | Planlandı |
 
-Redis ve RabbitMQ servisleri geliştirme altyapısında hazırdır; ancak uygulama tarafındaki cache, publisher ve consumer akışları henüz tamamlanmamıştır.
+Redis sipariş oluşturma idempotency akışında kullanılmaktadır. Product cache ile RabbitMQ publisher ve consumer akışları henüz tamamlanmamıştır.
 
 ## Gereksinimler
 
@@ -270,6 +272,7 @@ Callback endpoint'i servisler arası entegrasyon içindir; normal istemci akış
 ```bash
 curl --request POST http://localhost:8080/api/v1/orders \
   --header "Content-Type: application/json" \
+  --header "Idempotency-Key: checkout-8f14e45f" \
   --header "X-Correlation-ID: demo-order-001" \
   --data '{
     "customer_id": 1,
@@ -309,6 +312,18 @@ değişmez.
 Örnekteki müşteri ve ürün ID'lerini kendi veritabanınızdaki aktif kayıtlarla değiştirin.
 
 Sipariş oluşturulurken ürün fiyatı ve kimlik bilgileri sipariş kalemine snapshot olarak yazılır; stok atomik olarak azaltılır ve `order.created` event'i outbox tablosuna eklenir.
+
+`Idempotency-Key` sipariş oluşturma çağrılarında zorunludur ve en fazla 128
+karakter olabilir. Aynı anahtar ve aynı request tekrar gönderildiğinde yeni
+sipariş veya stok hareketi oluşturulmadan önceki `201 Created` yanıtı döner;
+yanıttaki `Idempotency-Replayed: true` header'ı bunun tekrar yanıtı olduğunu
+gösterir. Aynı anahtar farklı bir request ile kullanılırsa veya ilk istek hâlâ
+işleniyorsa API `409 Conflict` döner. Başarısız sipariş denemelerinde anahtar
+serbest bırakılır. Tamamlanan kayıtlar varsayılan olarak 24 saat Redis'te tutulur;
+bu süre `ORDER_IDEMPOTENCY_TTL` ile değiştirilebilir (ör. `48h`).
+İşlem devam ederken tutulan kilit, süreç beklenmedik şekilde kapanırsa tekrar
+denemeyi kalıcı olarak engellememek için varsayılan 5 dakika sonra düşer;
+`ORDER_IDEMPOTENCY_PROCESSING_TTL` ile ayarlanabilir.
 
 ### 2. Ödeme başlatma
 

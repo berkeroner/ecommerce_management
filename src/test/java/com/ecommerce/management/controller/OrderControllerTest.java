@@ -17,6 +17,7 @@ import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.PaymentMethod;
 import com.ecommerce.management.entity.enums.PaymentStatus;
 import com.ecommerce.management.service.OrderService;
+import com.ecommerce.management.service.OrderIdempotencyService;
 import com.ecommerce.management.service.PaymentService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -35,6 +36,7 @@ class OrderControllerTest {
 
     @Autowired private MockMvc mockMvc;
     @MockitoBean private OrderService orderService;
+    @MockitoBean private OrderIdempotencyService orderIdempotencyService;
     @MockitoBean private PaymentService paymentService;
 
     private static final String REQUEST = """
@@ -50,11 +52,14 @@ class OrderControllerTest {
 
     @Test
     void shouldCreateOrderAndBindSnakeCaseRequest() throws Exception {
-        when(orderService.createOrder(any(OrderRequest.class))).thenReturn(response());
+        when(orderIdempotencyService.createOrder(eq("order-key-1"), any(OrderRequest.class)))
+                .thenReturn(new OrderIdempotencyService.Result(response(), false));
 
         mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "order-key-1")
                         .contentType(MediaType.APPLICATION_JSON).content(REQUEST))
                 .andExpect(status().isCreated())
+                .andExpect(header().string("Idempotency-Replayed", "false"))
                 .andExpect(jsonPath("$.data.id").value(100))
                 .andExpect(jsonPath("$.data.order_no").value("ORD-TEST"))
                 .andExpect(jsonPath("$.data.status").value("processing"))
@@ -62,7 +67,7 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.data.currency").value("TRY"));
 
         ArgumentCaptor<OrderRequest> captor = ArgumentCaptor.forClass(OrderRequest.class);
-        verify(orderService).createOrder(captor.capture());
+        verify(orderIdempotencyService).createOrder(eq("order-key-1"), captor.capture());
         OrderRequest request = captor.getValue();
         assertEquals(1L, request.customerId());
         assertEquals(PaymentMethod.CREDIT_CARD, request.paymentMethod());
@@ -89,28 +94,31 @@ class OrderControllerTest {
         String invalid = REQUEST.replaceFirst(field + ": [^,}]+", replacement);
 
         mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "validation-key")
                         .header("X-Correlation-ID", "order-validation-test")
                         .contentType(MediaType.APPLICATION_JSON).content(invalid))
                 .andExpect(status().is(422))
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.error.details").isNotEmpty())
                 .andExpect(jsonPath("$.error.correlation_id").value("order-validation-test"));
-        verifyNoInteractions(orderService);
+        verifyNoInteractions(orderIdempotencyService);
     }
 
     @Test
     void shouldRejectEmptyItems() throws Exception {
         mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "empty-items-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(REQUEST.replace(
                                 "[{\"product_id\": 10, \"quantity\": 2}]", "[]")))
                 .andExpect(status().is(422));
-        verifyNoInteractions(orderService);
+        verifyNoInteractions(orderIdempotencyService);
     }
 
     @Test
     void shouldRejectMissingShippingAddressId() throws Exception {
         mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "missing-address-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"customer_id": 1, "payment_method": "credit_card",
@@ -118,7 +126,7 @@ class OrderControllerTest {
                                  "items": [{"product_id": 10, "quantity": 2}]}
                                 """))
                 .andExpect(status().is(422));
-        verifyNoInteractions(orderService);
+        verifyNoInteractions(orderIdempotencyService);
     }
 
     @Test
@@ -229,9 +237,10 @@ class OrderControllerTest {
 
     @Test
     void shouldReturnStockConflict() throws Exception {
-        when(orderService.createOrder(any(OrderRequest.class))).thenThrow(
+        when(orderIdempotencyService.createOrder(anyString(), any(OrderRequest.class))).thenThrow(
                 new ResponseStatusException(HttpStatus.CONFLICT, "Insufficient stock"));
         mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "stock-conflict-key")
                         .contentType(MediaType.APPLICATION_JSON).content(REQUEST))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("CONFLICT"));
@@ -240,10 +249,33 @@ class OrderControllerTest {
     @Test
     void shouldRejectMalformedJson() throws Exception {
         mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "malformed-json-key")
                         .contentType(MediaType.APPLICATION_JSON).content("{"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
-        verifyNoInteractions(orderService);
+        verifyNoInteractions(orderIdempotencyService);
+    }
+
+    @Test
+    void shouldRequireIdempotencyKeyWhenCreatingOrder() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+        verifyNoInteractions(orderIdempotencyService);
+    }
+
+    @Test
+    void shouldExposeReplayedOrderResponse() throws Exception {
+        when(orderIdempotencyService.createOrder(eq("replayed-key"), any(OrderRequest.class)))
+                .thenReturn(new OrderIdempotencyService.Result(response(), true));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "replayed-key")
+                        .contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Idempotency-Replayed", "true"))
+                .andExpect(jsonPath("$.data.id").value(100));
     }
 
     private OrderResponse response() {

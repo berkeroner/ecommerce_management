@@ -25,6 +25,7 @@ class OpenApiTest {
                 .andExpect(jsonPath("$.paths['/api/v1/categories'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/customers'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/customers/{customerId}/addresses'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.parameters[?(@.name == 'Idempotency-Key')].required").value(true))
                 .andExpect(jsonPath("$.components.schemas.AddressRequest.properties.address_type").exists())
                 .andExpect(jsonPath("$.components.schemas.AddressRequest.properties.address_line").exists())
                 .andExpect(jsonPath("$.components.schemas.CategoryRequest.properties.name").exists())
