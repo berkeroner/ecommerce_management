@@ -26,25 +26,22 @@ import com.ecommerce.management.client.DummyPaymentClient;
 import com.ecommerce.management.dto.payment.PaymentRequest;
 import com.ecommerce.management.dto.payment.PaymentResponse;
 import com.ecommerce.management.dto.payment.provider.DummyPaymentAcceptedResponse;
+import com.ecommerce.management.dto.payment.provider.DummyPaymentItemRequest;
+import com.ecommerce.management.dto.payment.provider.DummyPaymentRequest;
+import com.ecommerce.management.dto.payment.provider.DummyRefundResponse;
 import com.ecommerce.management.dto.payment.provider.PaymentCallbackRequest;
 import com.ecommerce.management.dto.payment.provider.ProviderPaymentStatus;
 import com.ecommerce.management.entity.Customer;
 import com.ecommerce.management.entity.Order;
 import com.ecommerce.management.entity.OutboxEvent;
 import com.ecommerce.management.entity.Payment;
-import com.ecommerce.management.entity.OrderItem;
-import com.ecommerce.management.entity.Product;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.PaymentMethod;
 import com.ecommerce.management.entity.enums.PaymentStatus;
-import com.ecommerce.management.payment.PaymentStrategy;
-import com.ecommerce.management.payment.PaymentStrategyFactory;
 import com.ecommerce.management.repository.OrderRepository;
-import com.ecommerce.management.repository.OrderItemRepository;
 import com.ecommerce.management.repository.OrderStatusHistoryRepository;
 import com.ecommerce.management.repository.OutboxEventRepository;
 import com.ecommerce.management.repository.PaymentRepository;
-import com.ecommerce.management.repository.ProductRepository;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -52,14 +49,11 @@ import tools.jackson.databind.json.JsonMapper;
 class PaymentServiceTest {
 
     @Mock private OrderRepository orderRepository;
-    @Mock private OrderItemRepository orderItemRepository;
-    @Mock private ProductRepository productRepository;
     @Mock private PaymentRepository paymentRepository;
     @Mock private OrderStatusHistoryRepository historyRepository;
     @Mock private OutboxEventRepository outboxEventRepository;
-    @Mock private PaymentStrategyFactory strategyFactory;
-    @Mock private PaymentStrategy strategy;
     @Mock private DummyPaymentClient dummyPaymentClient;
+    @Mock private PaymentInitiationService paymentInitiationService;
     @Spy private JsonMapper objectMapper = JsonMapper.builder().build();
     @InjectMocks private PaymentService paymentService;
 
@@ -78,9 +72,27 @@ class PaymentServiceTest {
     }
 
     @Test
-    void shouldStartPaymentAsProcessing() {
-        mockOrderLookup();
-        mockProvider();
+    void shouldKeepPaymentProcessingUntilCallback() {
+        UUID idempotencyKey = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        DummyPaymentRequest providerRequest = new DummyPaymentRequest(
+                "100",
+                PaymentMethod.CREDIT_CARD,
+                "token",
+                java.util.List.of(new DummyPaymentItemRequest(
+                        "Test product", 2, new BigDecimal("250.00"))),
+                "TRY");
+        var pending = new PaymentInitiationService.PendingPaymentAttempt(
+                idempotencyKey, providerRequest);
+        var accepted = new DummyPaymentAcceptedResponse(
+                UUID.fromString("11111111-1111-1111-1111-111111111111"),
+                "100", idempotencyKey, ProviderPaymentStatus.PROCESSING);
+        PaymentResponse acceptedResponse = response(
+                PaymentStatus.PROCESSING, "11111111-1111-1111-1111-111111111111");
+        when(paymentInitiationService.createPending(any(), any())).thenReturn(pending);
+        when(dummyPaymentClient.createPayment(idempotencyKey, providerRequest))
+                .thenReturn(accepted);
+        when(paymentInitiationService.recordProviderAcceptance(idempotencyKey, accepted))
+                .thenReturn(acceptedResponse);
 
         PaymentResponse response = paymentService.startPayment(
                 100L, new PaymentRequest(PaymentMethod.CREDIT_CARD, "token"));
@@ -88,35 +100,23 @@ class PaymentServiceTest {
         assertEquals(PaymentStatus.PROCESSING, response.status());
         assertEquals(OrderStatus.PROCESSING, order.getStatus());
         assertEquals("11111111-1111-1111-1111-111111111111", response.transactionId());
-        verify(outboxEventRepository).save(argThat(event ->
-                event.getEventType().equals("payment.requested")));
-        verify(dummyPaymentClient).createPayment(argThat(providerRequest ->
-                providerRequest.orderId().equals("100")
-                        && providerRequest.items().size() == 1
-                        && providerRequest.items().getFirst().productName().equals("Test product")
-                        && providerRequest.items().getFirst().quantity() == 2
-                        && providerRequest.items().getFirst().unitPrice()
-                                .compareTo(new BigDecimal("250.00")) == 0));
+        verify(dummyPaymentClient).createPayment(idempotencyKey, providerRequest);
     }
 
     @Test
-    void shouldRejectPaymentFromCallbackAndFailOrder() {
+    void shouldRejectPaymentFromCallbackAndAllowRetry() {
         UUID providerPaymentId = UUID.fromString("11111111-1111-1111-1111-111111111111");
-        Payment payment = payment(PaymentStatus.PROCESSING);
+        UUID idempotencyKey = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        Payment payment = payment(PaymentStatus.PENDING);
         payment.setTransactionId(providerPaymentId.toString());
-        when(paymentRepository.findByTransactionIdForUpdate(providerPaymentId.toString()))
+        payment.setIdempotencyKey(idempotencyKey.toString());
+        when(paymentRepository.findByIdempotencyKeyForUpdate(idempotencyKey.toString()))
                 .thenReturn(Optional.of(payment));
-        Product product = new Product();
-        product.setId(10L);
-        OrderItem item = new OrderItem();
-        item.setProduct(product);
-        item.setQuantity(2);
-        when(orderItemRepository.findAllByOrderId(100L)).thenReturn(java.util.List.of(item));
-        when(productRepository.releaseStock(any(), any(Integer.class), any())).thenReturn(1);
 
         PaymentResponse response = paymentService.handleCallback(new PaymentCallbackRequest(
                 providerPaymentId,
                 "100",
+                idempotencyKey,
                 ProviderPaymentStatus.REJECTED,
                 new BigDecimal("500.00"),
                 "TRY",
@@ -124,34 +124,35 @@ class PaymentServiceTest {
         ));
 
         assertEquals(PaymentStatus.FAILED, response.status());
-        assertEquals(OrderStatus.FAILED, order.getStatus());
-        verify(productRepository).releaseStock(any(), any(Integer.class), any());
+        assertEquals(OrderStatus.PROCESSING, order.getStatus());
         verify(outboxEventRepository).save(argThat(event ->
                 event.getEventType().equals("payment.failed")));
     }
 
     @Test
     void shouldRejectDuplicatePayment() {
-        mockOrderLookup();
-        when(paymentRepository.existsByOrderIdAndStatusIn(any(), any())).thenReturn(true);
+        when(paymentInitiationService.createPending(any(), any())).thenThrow(
+                new ResponseStatusException(HttpStatus.CONFLICT, "Payment is pending"));
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> paymentService.startPayment(100L,
                         new PaymentRequest(PaymentMethod.CREDIT_CARD, "token")));
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
-        verify(strategyFactory, never()).get(any());
-        verify(dummyPaymentClient, never()).createPayment(any());
+        verify(dummyPaymentClient, never()).createPayment(any(), any());
     }
 
     @Test
     void shouldRefundCompletedPaymentAndBeIdempotent() {
         Payment payment = payment(PaymentStatus.COMPLETED);
+        payment.setTransactionId("11111111-1111-1111-1111-111111111111");
         when(paymentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(payment));
-        when(strategyFactory.get(PaymentMethod.CREDIT_CARD)).thenReturn(strategy);
-        when(strategy.refund(payment)).thenReturn("REF-1");
+        when(dummyPaymentClient.refundPayment(
+                UUID.fromString(payment.getTransactionId()), PaymentMethod.CREDIT_CARD))
+                .thenReturn(new DummyRefundResponse("REF-1"));
 
         assertEquals(PaymentStatus.REFUNDED, paymentService.refund(5L).status());
         assertEquals(PaymentStatus.REFUNDED, paymentService.refund(5L).status());
-        verify(strategy).refund(payment);
+        verify(dummyPaymentClient).refundPayment(
+                UUID.fromString(payment.getTransactionId()), PaymentMethod.CREDIT_CARD);
         verify(outboxEventRepository).save(argThat(event ->
                 event.getEventType().equals("payment.refunded")));
     }
@@ -165,28 +166,6 @@ class PaymentServiceTest {
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
     }
 
-    private void mockProvider() {
-        OrderItem item = new OrderItem();
-        item.setProductName("Test product");
-        item.setQuantity(2);
-        item.setUnitPrice(new BigDecimal("250.00"));
-        when(orderItemRepository.findAllByOrderId(100L)).thenReturn(java.util.List.of(item));
-        when(dummyPaymentClient.createPayment(any())).thenReturn(new DummyPaymentAcceptedResponse(
-                UUID.fromString("11111111-1111-1111-1111-111111111111"),
-                "100",
-                ProviderPaymentStatus.PROCESSING
-        ));
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
-            Payment payment = invocation.getArgument(0);
-            payment.setId(5L);
-            return payment;
-        });
-    }
-
-    private void mockOrderLookup() {
-        when(orderRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(order));
-    }
-
     private Payment payment(PaymentStatus status) {
         Payment payment = new Payment();
         payment.setId(5L);
@@ -197,5 +176,11 @@ class PaymentServiceTest {
         payment.setStatus(status);
         payment.setAmount(new BigDecimal("500.00"));
         return payment;
+    }
+
+    private PaymentResponse response(PaymentStatus status, String transactionId) {
+        return new PaymentResponse(5L, "PAY-TEST", 100L,
+                PaymentMethod.CREDIT_CARD, "dummy-payment-service", status,
+                new BigDecimal("500.00"), transactionId, null, null);
     }
 }

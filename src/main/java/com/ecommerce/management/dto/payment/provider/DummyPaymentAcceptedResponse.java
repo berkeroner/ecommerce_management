@@ -5,6 +5,7 @@ import java.util.UUID;
 public record DummyPaymentAcceptedResponse(
         UUID paymentId,
         String orderId,
+        UUID idempotencyKey,
         ProviderPaymentStatus status
 ) {
 }
