@@ -138,6 +138,27 @@ set +a
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
+### Süresi geçen pending siparişleri temizleme
+
+Oluşturulmasının üzerinden 10 dakika geçen ve ödemesi hâlâ `PENDING` olan
+siparişleri silmek için aşağıdaki tek seferlik komutu çalıştırın:
+
+```bash
+./cleanup-orders
+```
+
+Komut, silinen siparişler için rezerve stoğu geri yükler ve bağlı kayıtları da
+temizler. `PROCESSING`, `COMPLETED` veya `REFUNDED` ödemesi bulunan siparişlere
+dokunmaz. Süre `ORDER_PENDING_PAYMENT_TIMEOUT` ortam değişkeniyle değiştirilebilir
+(örnek: `ORDER_PENDING_PAYMENT_TIMEOUT=15m`).
+
+Uygulama çalışırken `PENDING` ve `PROCESSING` ödemelerin güncel durumu varsayılan
+olarak her 30 saniyede bir ödeme sağlayıcısından sorgulanır. Callback ulaşmasa bile
+sağlayıcıdaki sonuç `APPROVED` veya `REJECTED` olmuşsa yerel ödeme ve sipariş
+durumları güncellenir. Bu aralık `PAYMENT_STATUS_POLL_INTERVAL` ortam değişkeniyle
+değiştirilebilir. Polling işlemi sipariş silmez; `./cleanup-orders` komutu da silme
+öncesinde son bir sağlayıcı kontrolü gerçekleştirir.
+
 API varsayılan olarak `http://localhost:8080` adresinde açılır.
 
 `dev` profili Liquibase üzerinden 8 kategori, 24 müşteri, 48 ürün ve 30 müşteri adresi ekler. Seed kayıtları geliştirme amaçlıdır ve gerçek üretim verisi olarak kullanılmamalıdır.

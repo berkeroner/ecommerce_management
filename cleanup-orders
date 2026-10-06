@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+
+set -eu
+
+echo "Starting expired pending order cleanup..."
+
+exec ./mvnw -q spring-boot:run -Pcleanup-expired-pending-orders "$@"

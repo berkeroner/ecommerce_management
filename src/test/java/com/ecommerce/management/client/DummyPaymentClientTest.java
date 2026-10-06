@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
@@ -19,6 +20,44 @@ import com.ecommerce.management.entity.enums.PaymentMethod;
 import com.sun.net.httpserver.HttpServer;
 
 class DummyPaymentClientTest {
+
+    @Test
+    void shouldReadCurrentPaymentStatus() throws IOException {
+        UUID paymentId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/payments/" + paymentId, exchange -> {
+            byte[] response = """
+                    {
+                      "paymentId": "11111111-1111-1111-1111-111111111111",
+                      "orderId": "42",
+                      "idempotencyKey": "22222222-2222-2222-2222-222222222222",
+                      "status": "APPROVED",
+                      "totalAmount": 1500.00,
+                      "currency": "TRY",
+                      "message": "Payment approved"
+                    }
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            DummyPaymentClient client = new DummyPaymentClient(
+                    "http://localhost:" + server.getAddress().getPort());
+
+            Optional<com.ecommerce.management.dto.payment.provider.ProviderPaymentStatusResponse>
+                    response = client.findPayment(paymentId);
+
+            assertThat(response).isPresent();
+            assertThat(response.orElseThrow().status())
+                    .isEqualTo(ProviderPaymentStatus.APPROVED);
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     void shouldSendItemListAndReadAcceptedResponse() throws IOException {
