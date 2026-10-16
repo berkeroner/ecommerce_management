@@ -6,6 +6,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -58,6 +59,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "The operation conflicts with existing data", Map.of(), request);
     }
 
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Object> handleAccessDenied(AccessDeniedException ex, WebRequest request) {
+        return response(HttpStatus.FORBIDDEN, new HttpHeaders(), "FORBIDDEN",
+                "You are not allowed to perform this operation", Map.of(), request);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Object> handleUnexpected(Exception ex, WebRequest request) {
         LOG.error("Unexpected request failure", ex);
@@ -68,6 +75,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private String code(HttpStatusCode status) {
         return switch (status.value()) {
             case 400 -> "BAD_REQUEST";
+            case 401 -> "UNAUTHORIZED";
+            case 403 -> "FORBIDDEN";
             case 404 -> "NOT_FOUND";
             case 409 -> "CONFLICT";
             case 422 -> "VALIDATION_ERROR";

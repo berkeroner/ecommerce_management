@@ -5,6 +5,7 @@ import com.ecommerce.management.dto.common.PageResponse;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,6 +33,7 @@ public class CustomerController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public PageResponse<CustomerResponse> findAll(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int limit,
@@ -41,11 +43,13 @@ public class CustomerController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@authz.canAccessCustomer(authentication, #id)")
     public CustomerResponse findById(@PathVariable Long id) {
         return customerService.findById(id);
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<CustomerResponse> create(
             @Valid @RequestBody CustomerRequest request) {
         CustomerResponse customer = customerService.create(request);
@@ -55,6 +59,7 @@ public class CustomerController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@authz.canAccessCustomer(authentication, #id)")
     public CustomerResponse update(
             @PathVariable Long id,
             @Valid @RequestBody CustomerRequest request) {
@@ -62,6 +67,7 @@ public class CustomerController {
     }
 
     @PatchMapping("/{id}/status")
+    @PreAuthorize("hasRole('ADMIN')")
     public CustomerResponse updateStatus(
             @PathVariable Long id,
             @Valid @RequestBody CustomerStatusRequest request) {

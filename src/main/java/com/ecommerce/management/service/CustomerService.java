@@ -14,16 +14,20 @@ import org.springframework.web.server.ResponseStatusException;
 import com.ecommerce.management.dto.customer.CustomerRequest;
 import com.ecommerce.management.dto.customer.CustomerResponse;
 import com.ecommerce.management.entity.Customer;
+import com.ecommerce.management.entity.AppUser;
 import com.ecommerce.management.entity.enums.RecordStatus;
+import com.ecommerce.management.repository.AppUserRepository;
 import com.ecommerce.management.repository.CustomerRepository;
 
 @Service
 public class CustomerService {
 
     private final CustomerRepository customerRepository;
+    private final AppUserRepository userRepository;
 
-    public CustomerService(CustomerRepository customerRepository) {
+    public CustomerService(CustomerRepository customerRepository, AppUserRepository userRepository) {
         this.customerRepository = customerRepository;
+        this.userRepository = userRepository;
     }
 
     @Transactional(readOnly = true)
@@ -86,6 +90,8 @@ public class CustomerService {
         customer.setEmail(email);
         customer.setUpdatedAt(LocalDateTime.now());
 
+        userRepository.findByCustomerId(id).ifPresent(user -> updateAccountEmail(user, email));
+
         return toResponse(customerRepository.save(customer));
     }
 
@@ -113,6 +119,22 @@ public class CustomerService {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT, "Customer email already exists: " + email);
         }
+        AppUser linkedUser = currentCustomerId == null
+                ? null
+                : userRepository.findByCustomerId(currentCustomerId).orElse(null);
+        boolean accountExists = linkedUser == null
+                ? userRepository.existsByEmail(email)
+                : userRepository.existsByEmailAndIdNot(email, linkedUser.getId());
+        if (accountExists) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "User email already exists: " + email);
+        }
+    }
+
+    private void updateAccountEmail(AppUser user, String email) {
+        user.setEmail(email);
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
     }
 
     private String normalizeEmail(String email) {

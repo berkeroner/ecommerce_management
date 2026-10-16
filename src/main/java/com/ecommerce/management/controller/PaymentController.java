@@ -1,6 +1,7 @@
 package com.ecommerce.management.controller;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,6 +24,7 @@ public class PaymentController {
     private final PaymentService paymentService;
 
     @PostMapping("/{id}/refund")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<DataResponse<PaymentResponse>> refund(@PathVariable Long id) {
         return ResponseEntity.ok(new DataResponse<>(paymentService.refund(id)));
     }

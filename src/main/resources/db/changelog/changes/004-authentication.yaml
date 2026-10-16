@@ -1,0 +1,65 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-create-app-users
+      author: codex
+      changes:
+        - createTable:
+            tableName: app_users
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: app_usersPK
+                    nullable: false
+              - column:
+                  name: email
+                  type: VARCHAR(190)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: password_hash
+                  type: VARCHAR(100)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: role
+                  type: VARCHAR(30)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: customer_id
+                  type: BIGINT
+              - column:
+                  name: created_at
+                  type: DATETIME(6)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: DATETIME(6)
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: app_users
+            columnNames: email
+            constraintName: uk_app_users_email
+        - addUniqueConstraint:
+            tableName: app_users
+            columnNames: customer_id
+            constraintName: uk_app_users_customer_id
+        - addForeignKeyConstraint:
+            baseTableName: app_users
+            baseColumnNames: customer_id
+            referencedTableName: customers
+            referencedColumnNames: id
+            constraintName: fk_app_users_customer
+            onDelete: CASCADE
+        - createIndex:
+            tableName: app_users
+            indexName: idx_app_users_role
+            columns:
+              - column:
+                  name: role

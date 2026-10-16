@@ -2,6 +2,7 @@ package com.ecommerce.management.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,6 +34,7 @@ public class OrderController {
     private final PaymentService paymentService;
 
     @PostMapping
+    @PreAuthorize("@authz.canCreateOrder(authentication, #request)")
     public ResponseEntity<DataResponse<OrderResponse>> createOrder(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody OrderRequest request) {
@@ -43,24 +45,28 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@authz.canAccessOrder(authentication, #id)")
     public ResponseEntity<DataResponse<OrderResponse>> getOrderById(@PathVariable Long id) {
         OrderResponse response = orderService.findById(id);
         return ResponseEntity.ok(new DataResponse<>(response));
     }
 
     @GetMapping("/{id}/status")
+    @PreAuthorize("@authz.canAccessOrder(authentication, #id)")
     public ResponseEntity<DataResponse<OrderStatusResponse>> getOrderStatus(@PathVariable Long id) {
         OrderStatusResponse response = orderService.getStatus(id);
         return ResponseEntity.ok(new DataResponse<>(response));
     }
 
     @PostMapping("/{id}/cancel")
+    @PreAuthorize("@authz.canAccessOrder(authentication, #id)")
     public ResponseEntity<DataResponse<OrderResponse>> cancelOrder(@PathVariable Long id) {
         OrderResponse response = orderService.cancelOrder(id);
         return ResponseEntity.ok(new DataResponse<>(response));
     }
 
     @PostMapping("/{id}/payments")
+    @PreAuthorize("@authz.canAccessOrder(authentication, #id)")
     public ResponseEntity<DataResponse<PaymentResponse>> startPayment(
             @PathVariable Long id, @Valid @RequestBody PaymentRequest request) {
         PaymentResponse response = paymentService.startPayment(id, request);

@@ -23,6 +23,7 @@ Proje; ürün, kategori, müşteri ve adres yönetiminin yanında stok rezervasy
 - Liquibase migration ve geliştirme ortamı için seed data
 - Standart hata modeli ve request correlation ID
 - Swagger UI / OpenAPI dokümantasyonu
+- BCrypt parola hashleme, JWT authentication ve rol/sahiplik bazlı authorization
 - Docker Compose ile MySQL, Redis ve RabbitMQ altyapısı
 - Controller, service, repository ve entegrasyon testleri
 
@@ -98,13 +99,31 @@ cd ecommerce_management
 cp .env.example .env
 ```
 
-`.env` içindeki aşağıdaki üç boş şifreyi doldurun:
+`.env` içindeki altyapı şifrelerini ve JWT imzalama anahtarını doldurun:
 
 ```dotenv
 MYSQL_ROOT_PASSWORD=your_root_password
 ECOMMERCE_DB_PASSWORD=your_database_password
 ECOMMERCE_RABBITMQ_PASSWORD=your_rabbitmq_password
+JWT_SECRET=your_base64_encoded_32_byte_secret
 ```
+
+Güvenli bir JWT anahtarı üretmek için:
+
+```bash
+openssl rand -base64 32
+```
+
+İlk admin hesabını uygulama başlangıcında bir defaya mahsus oluşturmak isterseniz
+iki değeri birlikte tanımlayın. Parola 12-72 karakter olmalıdır:
+
+```dotenv
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=replace_with_a_strong_password
+```
+
+Admin daha önce oluşturulmuşsa sonraki başlangıçlarda değiştirilmez. Bu değişkenler
+boş bırakıldığında bootstrap işlemi yapılmaz.
 
 `.env` Git tarafından takip edilmez. Gerçek şifreleri veya erişim bilgilerini repoya eklemeyin.
 
@@ -224,6 +243,38 @@ Uygulama çalışırken:
 Swagger UI üzerinden endpointleri inceleyebilir ve doğrudan istek gönderebilirsiniz.
 
 ## Endpoint Özeti
+
+### Kimlik doğrulama
+
+| Method | Endpoint | Açıklama |
+| --- | --- | --- |
+| `POST` | `/api/v1/auth/register` | Müşteri hesabı oluşturur ve JWT döndürür |
+| `POST` | `/api/v1/auth/login` | E-posta/parola ile JWT döndürür |
+
+Kayıt örneği:
+
+```http
+POST /api/v1/auth/register
+Content-Type: application/json
+
+{
+  "name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "password": "a-strong-password"
+}
+```
+
+Korunan endpointlerde dönen `access_token` Bearer token olarak gönderilir:
+
+```http
+Authorization: Bearer eyJ...
+```
+
+Token varsayılan olarak 15 dakika geçerlidir; süre `JWT_ACCESS_TOKEN_TTL` ile
+değiştirilebilir. Ürün ve kategori okuma endpointleri herkese açıktır. Katalog
+yazma, müşteri listeleme/durum değiştirme ve refund işlemleri yalnız admin rolüne
+açıktır. Müşteriler kendi profil, adres ve siparişlerine erişebilir. Ödeme callback
+endpointi servisler arası akış için JWT dışında tutulmuştur.
 
 ### Kategoriler
 

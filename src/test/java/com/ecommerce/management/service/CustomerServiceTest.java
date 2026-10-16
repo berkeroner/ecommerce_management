@@ -22,12 +22,16 @@ import com.ecommerce.management.dto.customer.CustomerResponse;
 import com.ecommerce.management.entity.Customer;
 import com.ecommerce.management.entity.enums.RecordStatus;
 import com.ecommerce.management.repository.CustomerRepository;
+import com.ecommerce.management.repository.AppUserRepository;
 
 @ExtendWith(MockitoExtension.class)
 class CustomerServiceTest {
 
     @Mock
     private CustomerRepository customerRepository;
+
+    @Mock
+    private AppUserRepository userRepository;
 
     @InjectMocks
     private CustomerService customerService;

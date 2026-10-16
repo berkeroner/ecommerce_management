@@ -18,6 +18,9 @@ import org.springframework.data.domain.Pageable;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
+    boolean existsByIdAndCustomerIdAndCustomerStatus(
+            Long id, Long customerId, com.ecommerce.management.entity.enums.RecordStatus status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.id = :id")
     Optional<Order> findByIdForUpdate(@Param("id") Long id);

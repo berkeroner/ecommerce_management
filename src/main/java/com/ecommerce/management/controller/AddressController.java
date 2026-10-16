@@ -3,6 +3,7 @@ package com.ecommerce.management.controller;
 import java.net.URI;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,16 +27,19 @@ public class AddressController {
     }
 
     @GetMapping
+    @PreAuthorize("@authz.canAccessCustomer(authentication, #customerId)")
     public List<AddressResponse> findAll(@PathVariable Long customerId) {
         return addressService.findAll(customerId);
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@authz.canAccessCustomer(authentication, #customerId)")
     public AddressResponse findById(@PathVariable Long customerId, @PathVariable Long id) {
         return addressService.findById(customerId, id);
     }
 
     @PostMapping
+    @PreAuthorize("@authz.canAccessCustomer(authentication, #customerId)")
     public ResponseEntity<AddressResponse> create(@PathVariable Long customerId,
             @Valid @RequestBody AddressRequest request) {
         AddressResponse address = addressService.create(customerId, request);
@@ -44,12 +48,14 @@ public class AddressController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@authz.canAccessCustomer(authentication, #customerId)")
     public AddressResponse update(@PathVariable Long customerId, @PathVariable Long id,
             @Valid @RequestBody AddressRequest request) {
         return addressService.update(customerId, id, request);
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@authz.canAccessCustomer(authentication, #customerId)")
     public ResponseEntity<Void> delete(@PathVariable Long customerId, @PathVariable Long id) {
         addressService.delete(customerId, id);
         return ResponseEntity.noContent().build();
