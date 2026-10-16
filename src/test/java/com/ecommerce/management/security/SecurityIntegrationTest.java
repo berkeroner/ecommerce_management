@@ -52,6 +52,28 @@ class SecurityIntegrationTest {
     }
 
     @Test
+    void currentUserEndpointRequiresAuthentication() throws Exception {
+        mvc.perform(get("/api/v1/auth/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void currentUserEndpointReturnsAuthenticatedUser() throws Exception {
+        String email = "security-me@example.com";
+        String token = register(email);
+        AppUser user = userRepository.findByEmail(email).orElseThrow();
+
+        mvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user_id").value(user.getId()))
+                .andExpect(jsonPath("$.customer_id").value(user.getCustomer().getId()))
+                .andExpect(jsonPath("$.email").value(email))
+                .andExpect(jsonPath("$.role").value("customer"));
+    }
+
+    @Test
     void customerCanAccessOwnProfileButNotAnotherCustomerOrAdminList() throws Exception {
         String token = register("security-owner@example.com");
         AppUser owner = userRepository.findByEmail("security-owner@example.com").orElseThrow();

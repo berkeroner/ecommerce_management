@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.ecommerce.management.dto.auth.AuthResponse;
+import com.ecommerce.management.dto.auth.CurrentUserResponse;
 import com.ecommerce.management.dto.auth.LoginRequest;
 import com.ecommerce.management.dto.auth.RegisterRequest;
 import com.ecommerce.management.entity.AppUser;
@@ -74,6 +75,15 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Customer account is not active");
         }
         return response(user);
+    }
+
+    @Transactional(readOnly = true)
+    public CurrentUserResponse currentUser(Long userId) {
+        AppUser user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED, "Authenticated user no longer exists"));
+        Long customerId = user.getCustomer() == null ? null : user.getCustomer().getId();
+        return new CurrentUserResponse(user.getId(), customerId, user.getEmail(), user.getRole());
     }
 
     private AuthResponse response(AppUser user) {
