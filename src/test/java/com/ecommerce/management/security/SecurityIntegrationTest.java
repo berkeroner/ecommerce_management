@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.ecommerce.management.entity.AppUser;
 import com.ecommerce.management.entity.enums.UserRole;
 import com.ecommerce.management.repository.AppUserRepository;
+import com.ecommerce.management.repository.RefreshTokenRepository;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -30,13 +31,17 @@ class SecurityIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired AppUserRepository userRepository;
+    @Autowired RefreshTokenRepository refreshTokenRepository;
     @Autowired PasswordEncoder passwordEncoder;
 
     @Test
     void registrationIssuesTokenAndStoresOnlyPasswordHash() throws Exception {
-        String token = register("security-register@example.com");
+        AuthTokens tokens = register("security-register@example.com");
 
-        assertThat(token).isNotBlank();
+        assertThat(tokens.accessToken()).isNotBlank();
+        assertThat(tokens.refreshToken()).isNotBlank();
+        assertThat(refreshTokenRepository.findAll())
+                .noneMatch(token -> token.getTokenHash().equals(tokens.refreshToken()));
         AppUser user = userRepository.findByEmail("security-register@example.com").orElseThrow();
         assertThat(user.getPasswordHash()).isNotEqualTo("correct-horse-battery-staple");
         assertThat(passwordEncoder.matches("correct-horse-battery-staple", user.getPasswordHash()))
@@ -61,7 +66,7 @@ class SecurityIntegrationTest {
     @Test
     void currentUserEndpointReturnsAuthenticatedUser() throws Exception {
         String email = "security-me@example.com";
-        String token = register(email);
+        String token = register(email).accessToken();
         AppUser user = userRepository.findByEmail(email).orElseThrow();
 
         mvc.perform(get("/api/v1/auth/me")
@@ -75,7 +80,7 @@ class SecurityIntegrationTest {
 
     @Test
     void customerCanAccessOwnProfileButNotAnotherCustomerOrAdminList() throws Exception {
-        String token = register("security-owner@example.com");
+        String token = register("security-owner@example.com").accessToken();
         AppUser owner = userRepository.findByEmail("security-owner@example.com").orElseThrow();
 
         mvc.perform(get("/api/v1/customers/{id}", owner.getCustomer().getId())
@@ -127,7 +132,47 @@ class SecurityIntegrationTest {
                 .andExpect(status().isOk());
     }
 
-    private String register(String email) throws Exception {
+    @Test
+    void refreshRotatesTokenAndRejectsPreviouslyUsedToken() throws Exception {
+        AuthTokens original = register("security-refresh@example.com");
+
+        String response = mvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshRequest(original.refreshToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").isNotEmpty())
+                .andExpect(jsonPath("$.refresh_token").isNotEmpty())
+                .andExpect(jsonPath("$.refresh_expires_in").isNumber())
+                .andReturn().getResponse().getContentAsString();
+        String rotatedRefreshToken = objectMapper.readTree(response).get("refresh_token").asText();
+
+        assertThat(rotatedRefreshToken).isNotEqualTo(original.refreshToken());
+        mvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshRequest(original.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void logoutRevokesRefreshTokenAndIsIdempotent() throws Exception {
+        AuthTokens tokens = register("security-logout@example.com");
+
+        mvc.perform(post("/api/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshRequest(tokens.refreshToken())))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshRequest(tokens.refreshToken())))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshRequest(tokens.refreshToken())))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private AuthTokens register(String email) throws Exception {
         String response = mvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -135,9 +180,22 @@ class SecurityIntegrationTest {
                                  "password":"correct-horse-battery-staple"}
                                 """.formatted(email)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.access_token").isNotEmpty())
+                .andExpect(jsonPath("$.refresh_token").isNotEmpty())
                 .andExpect(jsonPath("$.token_type").value("Bearer"))
                 .andExpect(jsonPath("$.role").value("customer"))
                 .andReturn().getResponse().getContentAsString();
-        return objectMapper.readTree(response).get("access_token").asText();
+        return new AuthTokens(
+                objectMapper.readTree(response).get("access_token").asText(),
+                objectMapper.readTree(response).get("refresh_token").asText());
+    }
+
+    private String refreshRequest(String refreshToken) {
+        return """
+                {"refresh_token":"%s"}
+                """.formatted(refreshToken);
+    }
+
+    private record AuthTokens(String accessToken, String refreshToken) {
     }
 }

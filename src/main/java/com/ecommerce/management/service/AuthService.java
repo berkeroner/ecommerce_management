@@ -27,13 +27,16 @@ public class AuthService {
     private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
 
     public AuthService(AppUserRepository userRepository, CustomerRepository customerRepository,
-            PasswordEncoder passwordEncoder, JwtService jwtService) {
+            PasswordEncoder passwordEncoder, JwtService jwtService,
+            RefreshTokenService refreshTokenService) {
         this.userRepository = userRepository;
         this.customerRepository = customerRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @Transactional
@@ -64,16 +67,14 @@ public class AuthService {
         return response(user);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         AppUser user = userRepository.findByEmail(normalizeEmail(request.email()))
                 .orElseThrow(this::invalidCredentials);
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw invalidCredentials();
         }
-        if (user.getCustomer() != null && user.getCustomer().getStatus() != RecordStatus.ACTIVE) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Customer account is not active");
-        }
+        ensureCustomerIsActive(user);
         return response(user);
     }
 
@@ -86,11 +87,35 @@ public class AuthService {
         return new CurrentUserResponse(user.getId(), customerId, user.getEmail(), user.getRole());
     }
 
+    @Transactional
+    public AuthResponse refresh(String refreshToken) {
+        AppUser user = refreshTokenService.consume(refreshToken);
+        if (user == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Invalid or expired refresh token");
+        }
+        ensureCustomerIsActive(user);
+        return response(user);
+    }
+
+    @Transactional
+    public void logout(String refreshToken) {
+        refreshTokenService.revoke(refreshToken);
+    }
+
     private AuthResponse response(AppUser user) {
-        JwtService.IssuedToken token = jwtService.issue(user);
+        JwtService.IssuedToken accessToken = jwtService.issue(user);
+        RefreshTokenService.IssuedRefreshToken refreshToken = refreshTokenService.issue(user);
         Long customerId = user.getCustomer() == null ? null : user.getCustomer().getId();
-        return new AuthResponse(token.value(), "Bearer", token.expiresInSeconds(),
-                customerId, user.getRole());
+        return new AuthResponse(accessToken.value(), refreshToken.value(), "Bearer",
+                accessToken.expiresInSeconds(), refreshToken.expiresInSeconds(), customerId,
+                user.getRole());
+    }
+
+    private void ensureCustomerIsActive(AppUser user) {
+        if (user.getCustomer() != null && user.getCustomer().getStatus() != RecordStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Customer account is not active");
+        }
     }
 
     private ResponseStatusException invalidCredentials() {

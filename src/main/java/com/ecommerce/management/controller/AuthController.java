@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ecommerce.management.dto.auth.AuthResponse;
 import com.ecommerce.management.dto.auth.CurrentUserResponse;
 import com.ecommerce.management.dto.auth.LoginRequest;
+import com.ecommerce.management.dto.auth.RefreshTokenRequest;
 import com.ecommerce.management.dto.auth.RegisterRequest;
 import com.ecommerce.management.service.AuthService;
 
@@ -40,5 +41,16 @@ public class AuthController {
     @GetMapping("/me")
     public CurrentUserResponse me(@AuthenticationPrincipal Jwt jwt) {
         return authService.currentUser(Long.valueOf(jwt.getSubject()));
+    }
+
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return authService.refresh(request.refreshToken());
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request.refreshToken());
+        return ResponseEntity.noContent().build();
     }
 }

@@ -106,6 +106,8 @@ MYSQL_ROOT_PASSWORD=your_root_password
 ECOMMERCE_DB_PASSWORD=your_database_password
 ECOMMERCE_RABBITMQ_PASSWORD=your_rabbitmq_password
 JWT_SECRET=your_base64_encoded_32_byte_secret
+JWT_ACCESS_TOKEN_TTL=15m
+JWT_REFRESH_TOKEN_TTL=30d
 ```
 
 Güvenli bir JWT anahtarı üretmek için:
@@ -250,6 +252,9 @@ Swagger UI üzerinden endpointleri inceleyebilir ve doğrudan istek gönderebili
 | --- | --- | --- |
 | `POST` | `/api/v1/auth/register` | Müşteri hesabı oluşturur ve JWT döndürür |
 | `POST` | `/api/v1/auth/login` | E-posta/parola ile JWT döndürür |
+| `POST` | `/api/v1/auth/refresh` | Refresh tokenı göndererek yeni token çifti üretir |
+| `POST` | `/api/v1/auth/logout` | Refresh tokenı iptal eder |
+| `GET` | `/api/v1/auth/me` | Giriş yapan kullanıcının bilgilerini döndürür |
 
 Kayıt örneği:
 
@@ -270,8 +275,10 @@ Korunan endpointlerde dönen `access_token` Bearer token olarak gönderilir:
 Authorization: Bearer eyJ...
 ```
 
-Token varsayılan olarak 15 dakika geçerlidir; süre `JWT_ACCESS_TOKEN_TTL` ile
-değiştirilebilir. Ürün ve kategori okuma endpointleri herkese açıktır. Katalog
+Access token varsayılan olarak 15 dakika, refresh token 30 gün geçerlidir; süreler
+`JWT_ACCESS_TOKEN_TTL` ve `JWT_REFRESH_TOKEN_TTL` ile değiştirilebilir. Refresh
+token her yenilemede değiştirilir ve logout ile iptal edilir. Ürün ve kategori
+okuma endpointleri herkese açıktır. Katalog
 yazma, müşteri listeleme/durum değiştirme ve refund işlemleri yalnız admin rolüne
 açıktır. Müşteriler kendi profil, adres ve siparişlerine erişebilir. Ödeme callback
 endpointi servisler arası akış için JWT dışında tutulmuştur.
