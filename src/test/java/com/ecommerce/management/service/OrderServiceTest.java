@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.ecommerce.management.dto.order.OrderItemRequest;
@@ -30,6 +31,7 @@ import com.ecommerce.management.entity.Order;
 import com.ecommerce.management.entity.OrderItem;
 import com.ecommerce.management.entity.OrderStatusHistory;
 import com.ecommerce.management.entity.OutboxEvent;
+import com.ecommerce.management.entity.Payment;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.AddressType;
 import com.ecommerce.management.entity.enums.AddressableType;
@@ -255,6 +257,36 @@ class OrderServiceTest {
         assertEquals(OrderStatus.PROCESSING, detail.status());
         assertEquals(100L, orderService.getStatus(100L).id());
         assertEquals(OrderStatus.PROCESSING, orderService.getStatus(100L).status());
+    }
+
+    @Test
+    void shouldListCustomerOrdersWithLatestPaymentStatus() {
+        Order order = order(OrderStatus.CONFIRMED);
+        order.setCreatedAt(LocalDateTime.of(2026, 10, 20, 10, 0));
+        Payment payment = new Payment();
+        payment.setStatus(PaymentStatus.COMPLETED);
+        when(orderRepository.findAllByCustomerId(eq(1L), any()))
+                .thenReturn(new PageImpl<>(List.of(order)));
+        when(paymentRepository.findFirstByOrderIdOrderByIdDesc(100L))
+                .thenReturn(Optional.of(payment));
+
+        var result = orderService.findAllForCustomer(1L, 1, 10);
+
+        assertEquals(1, result.data().size());
+        assertEquals("ORD-TEST", result.data().getFirst().orderNo());
+        assertEquals(OrderStatus.CONFIRMED, result.data().getFirst().status());
+        assertEquals(PaymentStatus.COMPLETED, result.data().getFirst().paymentStatus());
+        assertEquals(order.getCreatedAt(), result.data().getFirst().createdAt());
+    }
+
+    @Test
+    void shouldRejectInvalidCustomerOrderPagination() {
+        assertEquals(422, assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.findAllForCustomer(1L, 0, 10)).getStatusCode().value());
+        assertEquals(422, assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.findAllForCustomer(1L, 1, 101)).getStatusCode().value());
     }
 
     @Test

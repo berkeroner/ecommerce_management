@@ -7,7 +7,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 
+import com.ecommerce.management.dto.common.PageResponse;
+import com.ecommerce.management.dto.order.CustomerOrderResponse;
 import com.ecommerce.management.dto.order.OrderRequest;
 import com.ecommerce.management.dto.order.OrderResponse;
 import com.ecommerce.management.dto.order.OrderStatusResponse;
@@ -140,6 +144,25 @@ class OrderControllerTest {
     }
 
     @Test
+    void shouldReturnCustomerOrders() throws Exception {
+        when(orderService.findAllForCustomer(1L, 1, 20)).thenReturn(new PageResponse<>(
+                List.of(new CustomerOrderResponse(
+                        100L, "ORD-TEST", OrderStatus.CONFIRMED, PaymentStatus.COMPLETED,
+                        new BigDecimal("500.00"), "TRY",
+                        LocalDateTime.of(2026, 10, 20, 10, 0))),
+                1, 20, 1, 1));
+
+        mockMvc.perform(get("/api/v1/orders")
+                        .param("customer_id", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].order_no").value("ORD-TEST"))
+                .andExpect(jsonPath("$.data[0].status").value("confirmed"))
+                .andExpect(jsonPath("$.data[0].payment_status").value("completed"))
+                .andExpect(jsonPath("$.total_elements").value(1));
+        verify(orderService).findAllForCustomer(1L, 1, 20);
+    }
+
+    @Test
     void shouldReturnOrderStatus() throws Exception {
         when(orderService.getStatus(100L)).thenReturn(
                 new OrderStatusResponse(100L, OrderStatus.PROCESSING));
@@ -184,6 +207,21 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.data.status").value("processing"))
                 .andExpect(jsonPath("$.data.payment_no").value("PAY-TEST"));
         verify(paymentService).startPayment(eq(100L), any(PaymentRequest.class));
+    }
+
+    @Test
+    void shouldReturnCurrentPaymentStatus() throws Exception {
+        when(paymentService.findByOrderIdAndId(100L, 5L)).thenReturn(
+                new PaymentResponse(5L, "PAY-TEST", 100L,
+                        PaymentMethod.CREDIT_CARD, "dummy-payment-service", PaymentStatus.FAILED,
+                        new BigDecimal("500.00"), "TXN-TEST", "declined", null));
+
+        mockMvc.perform(get("/api/v1/orders/100/payments/5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(5))
+                .andExpect(jsonPath("$.data.status").value("failed"))
+                .andExpect(jsonPath("$.data.failure_reason").value("declined"));
+        verify(paymentService).findByOrderIdAndId(100L, 5L);
     }
 
     @Test
