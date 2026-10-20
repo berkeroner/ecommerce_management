@@ -61,6 +61,14 @@ public class PaymentService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public PaymentResponse findByOrderIdAndId(Long orderId, Long paymentId) {
+        Payment payment = paymentRepository.findByIdAndOrderId(paymentId, orderId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Payment not found: " + paymentId));
+        return toResponse(payment);
+    }
+
     @Transactional
     public PaymentResponse handleCallback(PaymentCallbackRequest callback) {
         if (callback.status() != ProviderPaymentStatus.APPROVED
@@ -118,10 +126,12 @@ public class PaymentService {
             payment.setUpdatedAt(now);
             paymentRepository.save(payment);
 
+            transitionOrder(order, OrderStatus.FAILED, failureReason, now);
             savePaymentEvent(payment, "payment.failed", Map.of(
                     "order_id", order.getId(),
                     "idempotency_key", callback.idempotencyKey(),
                     "reason", failureReason), now);
+            saveOrderEvent(order, "order.failed", now);
         }
 
         return toResponse(payment);

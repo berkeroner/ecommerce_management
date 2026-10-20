@@ -84,7 +84,9 @@ public class AuthService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED, "Authenticated user no longer exists"));
         Long customerId = user.getCustomer() == null ? null : user.getCustomer().getId();
-        return new CurrentUserResponse(user.getId(), customerId, user.getEmail(), user.getRole());
+        String name = user.getCustomer() == null ? null : user.getCustomer().getName();
+        return new CurrentUserResponse(name, user.getId(), customerId,
+                user.getEmail(), user.getRole());
     }
 
     @Transactional

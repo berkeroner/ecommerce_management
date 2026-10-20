@@ -9,9 +9,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ecommerce.management.dto.common.DataResponse;
+import com.ecommerce.management.dto.common.PageResponse;
+import com.ecommerce.management.dto.order.CustomerOrderResponse;
 import com.ecommerce.management.dto.order.OrderRequest;
 import com.ecommerce.management.dto.order.OrderResponse;
 import com.ecommerce.management.dto.order.OrderStatusResponse;
@@ -32,6 +35,15 @@ public class OrderController {
     private final OrderService orderService;
     private final OrderIdempotencyService orderIdempotencyService;
     private final PaymentService paymentService;
+
+    @GetMapping
+    @PreAuthorize("@authz.canAccessCustomer(authentication, #customerId)")
+    public PageResponse<CustomerOrderResponse> findAllForCustomer(
+            @RequestParam(name = "customer_id") Long customerId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int limit) {
+        return orderService.findAllForCustomer(customerId, page, limit);
+    }
 
     @PostMapping
     @PreAuthorize("@authz.canCreateOrder(authentication, #request)")
@@ -71,6 +83,14 @@ public class OrderController {
             @PathVariable Long id, @Valid @RequestBody PaymentRequest request) {
         PaymentResponse response = paymentService.startPayment(id, request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(new DataResponse<>(response));
+    }
+
+    @GetMapping("/{id}/payments/{paymentId}")
+    @PreAuthorize("@authz.canAccessOrder(authentication, #id)")
+    public ResponseEntity<DataResponse<PaymentResponse>> getPayment(
+            @PathVariable Long id, @PathVariable Long paymentId) {
+        return ResponseEntity.ok(new DataResponse<>(
+                paymentService.findByOrderIdAndId(id, paymentId)));
     }
 
 }

@@ -123,7 +123,7 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    void shouldBlockWhileProcessingAndAllowAnotherAttemptAfterRejection() {
+    void shouldFailOrderAndBlockAnotherAttemptAfterRejection() {
         LocalDateTime now = LocalDateTime.now();
         Customer customer = customerRepository.save(customer(now));
         Order order = orderRepository.save(order(customer, now));
@@ -159,13 +159,15 @@ class PaymentServiceIntegrationTest {
                 "TRY",
                 "Declined"));
 
-        PaymentResponse retry = paymentService.startPayment(order.getId(),
-                new PaymentRequest(PaymentMethod.CREDIT_CARD, "new-token"));
+        ResponseStatusException retryConflict = assertThrows(ResponseStatusException.class,
+                () -> paymentService.startPayment(order.getId(),
+                        new PaymentRequest(PaymentMethod.CREDIT_CARD, "new-token")));
 
-        assertEquals(PaymentStatus.PROCESSING, retry.status());
-        assertEquals(OrderStatus.PROCESSING,
+        assertEquals(HttpStatus.CONFLICT, retryConflict.getStatusCode());
+        assertEquals(OrderStatus.FAILED,
                 orderRepository.findById(order.getId()).orElseThrow().getStatus());
-        assertEquals(2, paymentRepository.count());
+        assertEquals(1, paymentRepository.count());
+        assertEquals(1, historyRepository.count());
     }
 
     @Test

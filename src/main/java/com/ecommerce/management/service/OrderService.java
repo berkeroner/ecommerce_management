@@ -11,11 +11,15 @@ import java.util.UUID;
 
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.ecommerce.management.dto.order.OrderItemRequest;
+import com.ecommerce.management.dto.order.CustomerOrderResponse;
+import com.ecommerce.management.dto.common.PageResponse;
 import com.ecommerce.management.dto.order.OrderRequest;
 import com.ecommerce.management.dto.order.OrderResponse;
 import com.ecommerce.management.dto.order.OrderStatusResponse;
@@ -205,6 +209,36 @@ public class OrderService {
     @Transactional (readOnly = true)
     public OrderResponse findById(Long id) {
         return toResponse(getOrder(id));
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<CustomerOrderResponse> findAllForCustomer(
+            Long customerId, int page, int limit) {
+        if (customerId == null || customerId < 1) {
+            throw new ResponseStatusException(HttpStatus.valueOf(422),
+                    "customer_id must be positive");
+        }
+        if (page < 1 || limit < 1 || limit > 100) {
+            throw new ResponseStatusException(HttpStatus.valueOf(422),
+                    "page must be at least 1 and limit must be between 1 and 100");
+        }
+
+        var pageable = PageRequest.of(page - 1, limit,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+                        .and(Sort.by(Sort.Direction.DESC, "id")));
+        var orders = orderRepository.findAllByCustomerId(customerId, pageable);
+        var responses = orders.getContent().stream().map(order -> {
+            PaymentStatus paymentStatus = paymentRepository
+                    .findFirstByOrderIdOrderByIdDesc(order.getId())
+                    .map(payment -> payment.getStatus())
+                    .orElse(null);
+            return new CustomerOrderResponse(
+                    order.getId(), order.getOrderNo(), order.getStatus(), paymentStatus,
+                    order.getGrandTotal(), order.getCurrency(), order.getCreatedAt());
+        }).toList();
+
+        return new PageResponse<>(responses, page, limit,
+                orders.getTotalElements(), orders.getTotalPages());
     }
 
     private Order getOrder(Long id) {

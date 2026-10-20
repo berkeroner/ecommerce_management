@@ -2,6 +2,7 @@ databaseChangeLog:
   - changeSet:
       id: 005-create-refresh-tokens
       author: codex
+      validCheckSum: 9:96b7d01abb9342a6423dbbcb9bf7fd2b
       changes:
         - createTable:
             tableName: refresh_tokens

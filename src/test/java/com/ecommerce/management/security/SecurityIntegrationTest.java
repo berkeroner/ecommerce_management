@@ -2,7 +2,9 @@ package com.ecommerce.management.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -72,6 +74,7 @@ class SecurityIntegrationTest {
         mvc.perform(get("/api/v1/auth/me")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Security User"))
                 .andExpect(jsonPath("$.user_id").value(user.getId()))
                 .andExpect(jsonPath("$.customer_id").value(user.getCustomer().getId()))
                 .andExpect(jsonPath("$.email").value(email))
@@ -130,6 +133,18 @@ class SecurityIntegrationTest {
     void publicCatalogDoesNotRequireToken() throws Exception {
         mvc.perform(get("/api/v1/products"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void frontendOriginCanMakeCorsRequests() throws Exception {
+        mvc.perform(options("/api/v1/products")
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin",
+                        "http://localhost:5173"))
+                .andExpect(header().string("Access-Control-Allow-Methods",
+                        org.hamcrest.Matchers.containsString("GET")));
     }
 
     @Test

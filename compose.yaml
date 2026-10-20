@@ -13,6 +13,7 @@ services:
       ORDER_IDEMPOTENCY_TTL: ${ORDER_IDEMPOTENCY_TTL:-24h}
       ORDER_IDEMPOTENCY_PROCESSING_TTL: ${ORDER_IDEMPOTENCY_PROCESSING_TTL:-5m}
       PAYMENT_STATUS_POLL_INTERVAL: ${PAYMENT_STATUS_POLL_INTERVAL:-30s}
+      DUMMY_PAYMENT_BASE_URL: http://dummy-payment:8081
       ECOMMERCE_RABBITMQ_HOST: rabbitmq
       ECOMMERCE_RABBITMQ_PORT: 5672
       ECOMMERCE_RABBITMQ_USER: ${ECOMMERCE_RABBITMQ_USER:?Set ECOMMERCE_RABBITMQ_USER}
@@ -29,6 +30,18 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      dummy-payment:
+        condition: service_started
+    networks:
+      - ecommerce_network
+
+  dummy-payment:
+    build: ../../Downloads/dummy-payment-service
+    container_name: ecommerce-dummy-payment
+    restart: unless-stopped
+    environment:
+      PAYMENT_CALLBACK_URL: http://app:8080/api/v1/payments/callback
+      PAYMENT_PROCESSING_DELAY_MS: 3000
     networks:
       - ecommerce_network
 

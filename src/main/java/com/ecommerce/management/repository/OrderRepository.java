@@ -15,8 +15,11 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
+
+    Page<Order> findAllByCustomerId(Long customerId, Pageable pageable);
 
     boolean existsByIdAndCustomerIdAndCustomerStatus(
             Long id, Long customerId, com.ecommerce.management.entity.enums.RecordStatus status);

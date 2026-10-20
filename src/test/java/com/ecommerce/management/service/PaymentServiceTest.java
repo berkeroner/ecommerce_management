@@ -104,7 +104,7 @@ class PaymentServiceTest {
     }
 
     @Test
-    void shouldRejectPaymentFromCallbackAndAllowRetry() {
+    void shouldFailOrderWhenProviderRejectsPayment() {
         UUID providerPaymentId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID idempotencyKey = UUID.fromString("22222222-2222-2222-2222-222222222222");
         Payment payment = payment(PaymentStatus.PENDING);
@@ -124,9 +124,15 @@ class PaymentServiceTest {
         ));
 
         assertEquals(PaymentStatus.FAILED, response.status());
-        assertEquals(OrderStatus.PROCESSING, order.getStatus());
+        assertEquals(OrderStatus.FAILED, order.getStatus());
+        verify(historyRepository).save(argThat(history ->
+                history.getPreviousStatus() == OrderStatus.PROCESSING
+                        && history.getNewStatus() == OrderStatus.FAILED
+                        && history.getReason().equals("declined")));
         verify(outboxEventRepository).save(argThat(event ->
                 event.getEventType().equals("payment.failed")));
+        verify(outboxEventRepository).save(argThat(event ->
+                event.getEventType().equals("order.failed")));
     }
 
     @Test
@@ -138,6 +144,23 @@ class PaymentServiceTest {
                         new PaymentRequest(PaymentMethod.CREDIT_CARD, "token")));
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
         verify(dummyPaymentClient, never()).createPayment(any(), any());
+    }
+
+    @Test
+    void shouldReturnPaymentOnlyWhenItBelongsToOrder() {
+        Payment payment = payment(PaymentStatus.FAILED);
+        payment.setFailureReason("declined");
+        when(paymentRepository.findByIdAndOrderId(5L, 100L))
+                .thenReturn(Optional.of(payment));
+
+        PaymentResponse response = paymentService.findByOrderIdAndId(100L, 5L);
+
+        assertEquals(PaymentStatus.FAILED, response.status());
+        assertEquals("declined", response.failureReason());
+        when(paymentRepository.findByIdAndOrderId(5L, 999L))
+                .thenReturn(Optional.empty());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> paymentService.findByOrderIdAndId(999L, 5L)).getStatusCode());
     }
 
     @Test

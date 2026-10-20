@@ -26,6 +26,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     boolean existsByOrderIdAndStatusIn(Long orderId, Collection<PaymentStatus> statuses);
 
+    Optional<Payment> findFirstByOrderIdOrderByIdDesc(Long orderId);
+
+    Optional<Payment> findByIdAndOrderId(Long id, Long orderId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p join fetch p.order where p.id = :id")
     Optional<Payment> findByIdForUpdate(@Param("id") Long id);
