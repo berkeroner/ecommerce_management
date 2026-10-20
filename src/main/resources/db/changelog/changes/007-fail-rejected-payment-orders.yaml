@@ -21,14 +21,18 @@ databaseChangeLog:
                 AND p.status = 'FAILED';
         - sql:
             sql: |
-              UPDATE orders o
-              JOIN (
-                  SELECT order_id, MAX(id) AS payment_id
-                  FROM payments
-                  GROUP BY order_id
-              ) latest ON latest.order_id = o.id
-              JOIN payments p ON p.id = latest.payment_id
-              SET o.status = 'FAILED',
-                  o.updated_at = CURRENT_TIMESTAMP(6)
-              WHERE o.status = 'PROCESSING'
-                AND p.status = 'FAILED';
+              UPDATE orders
+              SET status = 'FAILED',
+                  updated_at = CURRENT_TIMESTAMP(6)
+              WHERE status = 'PROCESSING'
+                AND EXISTS (
+                    SELECT 1
+                    FROM payments p
+                    WHERE p.order_id = orders.id
+                      AND p.id = (
+                          SELECT MAX(latest_payment.id)
+                          FROM payments latest_payment
+                          WHERE latest_payment.order_id = orders.id
+                      )
+                      AND p.status = 'FAILED'
+                );
