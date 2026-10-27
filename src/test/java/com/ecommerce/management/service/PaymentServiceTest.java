@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -22,7 +23,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.ecommerce.management.client.DummyPaymentClient;
 import com.ecommerce.management.dto.payment.PaymentRequest;
 import com.ecommerce.management.dto.payment.PaymentResponse;
 import com.ecommerce.management.dto.payment.provider.DummyPaymentAcceptedResponse;
@@ -42,6 +42,8 @@ import com.ecommerce.management.repository.OrderRepository;
 import com.ecommerce.management.repository.OrderStatusHistoryRepository;
 import com.ecommerce.management.repository.OutboxEventRepository;
 import com.ecommerce.management.repository.PaymentRepository;
+import com.ecommerce.management.payment.PaymentStrategy;
+import com.ecommerce.management.payment.PaymentStrategyFactory;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -52,7 +54,8 @@ class PaymentServiceTest {
     @Mock private PaymentRepository paymentRepository;
     @Mock private OrderStatusHistoryRepository historyRepository;
     @Mock private OutboxEventRepository outboxEventRepository;
-    @Mock private DummyPaymentClient dummyPaymentClient;
+    @Mock private PaymentStrategyFactory paymentStrategyFactory;
+    @Mock private PaymentStrategy paymentStrategy;
     @Mock private PaymentInitiationService paymentInitiationService;
     @Spy private JsonMapper objectMapper = JsonMapper.builder().build();
     @InjectMocks private PaymentService paymentService;
@@ -69,6 +72,9 @@ class PaymentServiceTest {
         order.setStatus(OrderStatus.PROCESSING);
         order.setGrandTotal(new BigDecimal("500.00"));
         order.setCurrency("TRY");
+        lenient().when(paymentStrategyFactory.get(PaymentMethod.CREDIT_CARD))
+                .thenReturn(paymentStrategy);
+        lenient().when(paymentStrategy.provider()).thenReturn("dummy-payment-service");
     }
 
     @Test
@@ -88,8 +94,9 @@ class PaymentServiceTest {
                 "100", idempotencyKey, ProviderPaymentStatus.PROCESSING);
         PaymentResponse acceptedResponse = response(
                 PaymentStatus.PROCESSING, "11111111-1111-1111-1111-111111111111");
-        when(paymentInitiationService.createPending(any(), any())).thenReturn(pending);
-        when(dummyPaymentClient.createPayment(idempotencyKey, providerRequest))
+        when(paymentInitiationService.createPending(
+                any(), any(), any())).thenReturn(pending);
+        when(paymentStrategy.start(idempotencyKey, providerRequest))
                 .thenReturn(accepted);
         when(paymentInitiationService.recordProviderAcceptance(idempotencyKey, accepted))
                 .thenReturn(acceptedResponse);
@@ -100,7 +107,9 @@ class PaymentServiceTest {
         assertEquals(PaymentStatus.PROCESSING, response.status());
         assertEquals(OrderStatus.PROCESSING, order.getStatus());
         assertEquals("11111111-1111-1111-1111-111111111111", response.transactionId());
-        verify(dummyPaymentClient).createPayment(idempotencyKey, providerRequest);
+        verify(paymentStrategy).validate(
+                new PaymentRequest(PaymentMethod.CREDIT_CARD, "token"));
+        verify(paymentStrategy).start(idempotencyKey, providerRequest);
     }
 
     @Test
@@ -137,13 +146,13 @@ class PaymentServiceTest {
 
     @Test
     void shouldRejectDuplicatePayment() {
-        when(paymentInitiationService.createPending(any(), any())).thenThrow(
+        when(paymentInitiationService.createPending(any(), any(), any())).thenThrow(
                 new ResponseStatusException(HttpStatus.CONFLICT, "Payment is pending"));
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> paymentService.startPayment(100L,
                         new PaymentRequest(PaymentMethod.CREDIT_CARD, "token")));
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
-        verify(dummyPaymentClient, never()).createPayment(any(), any());
+        verify(paymentStrategy, never()).start(any(), any());
     }
 
     @Test
@@ -168,14 +177,12 @@ class PaymentServiceTest {
         Payment payment = payment(PaymentStatus.COMPLETED);
         payment.setTransactionId("11111111-1111-1111-1111-111111111111");
         when(paymentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(payment));
-        when(dummyPaymentClient.refundPayment(
-                UUID.fromString(payment.getTransactionId()), PaymentMethod.CREDIT_CARD))
+        when(paymentStrategy.refund(UUID.fromString(payment.getTransactionId())))
                 .thenReturn(new DummyRefundResponse("REF-1"));
 
         assertEquals(PaymentStatus.REFUNDED, paymentService.refund(5L).status());
         assertEquals(PaymentStatus.REFUNDED, paymentService.refund(5L).status());
-        verify(dummyPaymentClient).refundPayment(
-                UUID.fromString(payment.getTransactionId()), PaymentMethod.CREDIT_CARD);
+        verify(paymentStrategy).refund(UUID.fromString(payment.getTransactionId()));
         verify(outboxEventRepository).save(argThat(event ->
                 event.getEventType().equals("payment.refunded")));
     }

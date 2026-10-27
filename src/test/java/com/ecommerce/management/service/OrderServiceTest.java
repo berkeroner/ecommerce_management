@@ -35,7 +35,6 @@ import com.ecommerce.management.entity.Payment;
 import com.ecommerce.management.entity.enums.OrderStatus;
 import com.ecommerce.management.entity.enums.AddressType;
 import com.ecommerce.management.entity.enums.AddressableType;
-import com.ecommerce.management.entity.enums.PaymentMethod;
 import com.ecommerce.management.entity.enums.PaymentStatus;
 import com.ecommerce.management.entity.enums.RecordStatus;
 import com.ecommerce.management.repository.AddressRepository;
@@ -108,8 +107,6 @@ class OrderServiceTest {
 
         OrderRequest request = new OrderRequest(
                 1L,
-                PaymentMethod.CREDIT_CARD,
-                "mock",
                 20L,
                 21L,
                 List.of(new OrderItemRequest(10L, 2))
@@ -194,7 +191,7 @@ class OrderServiceTest {
         when(addressRepository.findByIdAndAddressableTypeAndAddressableId(
                 21L, AddressableType.CUSTOMER, 1L))
                 .thenReturn(Optional.of(address(21L, AddressType.SHIPPING)));
-        OrderRequest request = new OrderRequest(1L, PaymentMethod.CREDIT_CARD, "mock",
+        OrderRequest request = new OrderRequest(1L,
                 20L, 21L, List.of(new OrderItemRequest(10L, 2)));
 
         ResponseStatusException exception = assertThrows(
@@ -231,8 +228,8 @@ class OrderServiceTest {
     void shouldRejectQuantityOverflowBeforeReservation() {
         when(customerRepository.findById(1L)).thenReturn(Optional.of(activeCustomer()));
         OrderRequest base = request(1);
-        OrderRequest overflow = new OrderRequest(base.customerId(), base.paymentMethod(),
-                base.shippingProvider(), base.shippingAddressId(), base.billingAddressId(),
+        OrderRequest overflow = new OrderRequest(base.customerId(),
+                base.shippingAddressId(), base.billingAddressId(),
                 List.of(new OrderItemRequest(10L, Integer.MAX_VALUE),
                 new OrderItemRequest(10L, 1)));
         assertEquals(422, assertThrows(ResponseStatusException.class,
@@ -428,7 +425,7 @@ class OrderServiceTest {
     }
 
     private OrderRequest request(int quantity) {
-        return new OrderRequest(1L, PaymentMethod.CREDIT_CARD, "mock",
+        return new OrderRequest(1L,
                 20L, null, List.of(new OrderItemRequest(10L, quantity)));
     }
 
@@ -462,8 +459,6 @@ class OrderServiceTest {
 
         OrderRequest request = new OrderRequest(
                 1L,
-                PaymentMethod.CREDIT_CARD,
-                "mock",
                 20L,
                 null,
                 List.of(new OrderItemRequest(10L, 2))

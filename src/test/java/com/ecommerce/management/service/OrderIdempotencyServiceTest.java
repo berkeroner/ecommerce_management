@@ -30,7 +30,6 @@ import com.ecommerce.management.dto.order.OrderItemRequest;
 import com.ecommerce.management.dto.order.OrderRequest;
 import com.ecommerce.management.dto.order.OrderResponse;
 import com.ecommerce.management.entity.enums.OrderStatus;
-import com.ecommerce.management.entity.enums.PaymentMethod;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -151,7 +150,7 @@ class OrderIdempotencyServiceTest {
     }
 
     private OrderRequest request(int quantity) {
-        return new OrderRequest(1L, PaymentMethod.CREDIT_CARD, "mock", 20L, 21L,
+        return new OrderRequest(1L, 20L, 21L,
                 List.of(new OrderItemRequest(10L, quantity)));
     }
 

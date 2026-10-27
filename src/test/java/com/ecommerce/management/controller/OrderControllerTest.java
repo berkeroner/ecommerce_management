@@ -46,8 +46,6 @@ class OrderControllerTest {
     private static final String REQUEST = """
             {
               "customer_id": 1,
-              "payment_method": "credit_card",
-              "shipping_provider": "mock",
               "shipping_address_id": 20,
               "billing_address_id": 21,
               "items": [{"product_id": 10, "quantity": 2}]
@@ -74,8 +72,6 @@ class OrderControllerTest {
         verify(orderIdempotencyService).createOrder(eq("order-key-1"), captor.capture());
         OrderRequest request = captor.getValue();
         assertEquals(1L, request.customerId());
-        assertEquals(PaymentMethod.CREDIT_CARD, request.paymentMethod());
-        assertEquals("mock", request.shippingProvider());
         assertEquals(1, request.items().size());
         assertEquals(10L, request.items().get(0).productId());
         assertEquals(2, request.items().get(0).quantity());
@@ -86,8 +82,6 @@ class OrderControllerTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "\"customer_id\": 0",
-            "\"payment_method\": null",
-            "\"shipping_provider\": \"\"",
             "\"product_id\": 0",
             "\"quantity\": 0",
             "\"shipping_address_id\": 0",
@@ -125,8 +119,7 @@ class OrderControllerTest {
                         .header("Idempotency-Key", "missing-address-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"customer_id": 1, "payment_method": "credit_card",
-                                 "shipping_provider": "mock",
+                                {"customer_id": 1,
                                  "items": [{"product_id": 10, "quantity": 2}]}
                                 """))
                 .andExpect(status().is(422));

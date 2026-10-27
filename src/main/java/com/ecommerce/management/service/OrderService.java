@@ -376,9 +376,7 @@ public class OrderService {
                 "order_id", order.getId(),
                 "customer_id", order.getCustomer().getId(),
                 "grand_total", order.getGrandTotal(),
-                "currency", order.getCurrency(),
-                "payment_method", request.paymentMethod(),
-                "shipping_provider", request.shippingProvider().trim()
+                "currency", order.getCurrency()
         );
 
         var envelope = Map.of(

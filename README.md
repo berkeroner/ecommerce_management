@@ -363,8 +363,6 @@ curl --request POST http://localhost:8080/api/v1/orders \
   --header "X-Correlation-ID: demo-order-001" \
   --data '{
     "customer_id": 1,
-    "payment_method": "credit_card",
-    "shipping_provider": "mock",
     "shipping_address_id": 1,
     "billing_address_id": 2,
     "items": [
@@ -421,21 +419,24 @@ curl --request POST http://localhost:8080/api/v1/orders/42/payments \
   --header "Content-Type: application/json" \
   --data '{
     "method": "credit_card",
-    "payment_token": "mock-token-123"
+    "payment_token": "tok_success"
   }'
 ```
 
 API `202 Accepted` ile `processing` durumundaki ödeme kaydını döner. Dummy servis callback gönderdiğinde:
 
 - `APPROVED`: ödeme `completed`, sipariş `confirmed` olur.
-- `REJECTED`: ödeme `failed` olur; sipariş `processing` durumunda ve stok
-  rezervasyonu korunarak yeni ödeme denemesine izin verilir.
+- `REJECTED`: ödeme ve sipariş `failed` olur; rezerve stok geri bırakılır.
 
 Desteklenen ödeme yöntemleri:
 
 - `credit_card`
 - `bank_transfer`
 - `cash_on_delivery`
+
+`payment_token` yalnızca `credit_card` için zorunludur. `bank_transfer` ve
+`cash_on_delivery` isteklerinde token gönderilmemelidir. Ödeme yöntemi sipariş
+oluşturma isteğinde değil, yalnızca ödeme başlatma isteğinde seçilir.
 
 ## Hata Modeli
 

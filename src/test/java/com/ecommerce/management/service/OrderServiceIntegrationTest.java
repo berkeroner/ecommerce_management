@@ -1,6 +1,7 @@
 package com.ecommerce.management.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
@@ -22,7 +23,6 @@ import com.ecommerce.management.entity.Customer;
 import com.ecommerce.management.entity.Product;
 import com.ecommerce.management.entity.OutboxEvent;
 import jakarta.persistence.EntityManager;
-import com.ecommerce.management.entity.enums.PaymentMethod;
 import com.ecommerce.management.entity.enums.AddressType;
 import com.ecommerce.management.entity.enums.AddressableType;
 import com.ecommerce.management.entity.enums.RecordStatus;
@@ -77,8 +77,8 @@ class OrderServiceIntegrationTest {
     void shouldPersistOrderSnapshotsHistoryAndOutboxAndMergeDuplicateItems() {
         List<Long> ids = fixture(5);
         OrderRequest base = request(ids);
-        OrderRequest duplicate = new OrderRequest(base.customerId(), base.paymentMethod(),
-                base.shippingProvider(), base.shippingAddressId(), base.billingAddressId(),
+        OrderRequest duplicate = new OrderRequest(base.customerId(),
+                base.shippingAddressId(), base.billingAddressId(),
                 List.of(new OrderItemRequest(ids.get(1), 1),
                 new OrderItemRequest(ids.get(1), 1)));
         var response = orderService.createOrder(duplicate);
@@ -122,8 +122,8 @@ class OrderServiceIntegrationTest {
             assertEquals(event.getId().toString(), payload.path("event_id").asText());
             assertEquals("order.created", payload.path("event_type").asText());
             assertEquals(response.id().longValue(), payload.path("data").path("order_id").asLong());
-            assertEquals("credit_card", payload.path("data").path("payment_method").asText());
-            assertEquals("mock", payload.path("data").path("shipping_provider").asText());
+            assertFalse(payload.path("data").has("payment_method"));
+            assertFalse(payload.path("data").has("shipping_provider"));
         });
     }
 
@@ -190,7 +190,7 @@ class OrderServiceIntegrationTest {
     }
 
     private OrderRequest request(List<Long> ids) {
-        return new OrderRequest(ids.get(0), PaymentMethod.CREDIT_CARD, "mock",
+        return new OrderRequest(ids.get(0),
                 ids.get(2), null, List.of(new OrderItemRequest(ids.get(1), 2)));
     }
 
@@ -224,7 +224,7 @@ class OrderServiceIntegrationTest {
         });
 
         OrderRequest request = new OrderRequest(
-                ids.get(0), PaymentMethod.CREDIT_CARD, "mock",
+                ids.get(0),
                 ids.get(3), null,
                 List.of(
                         new OrderItemRequest(ids.get(1), 2),
@@ -276,7 +276,7 @@ class OrderServiceIntegrationTest {
         });
 
         OrderRequest request = new OrderRequest(
-                ids.get(0), PaymentMethod.CREDIT_CARD, "mock",
+                ids.get(0),
                 ids.get(2), null,
                 List.of(new OrderItemRequest(ids.get(1), 2))
         );
