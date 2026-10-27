@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -13,6 +15,7 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -20,6 +23,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import org.junit.jupiter.api.AfterAll;
@@ -92,8 +96,10 @@ class OrderIdempotencyServiceRedisIntegrationTest {
     @Test
     void shouldCreateOnceAndReplayCompletedResponseFromRedis() {
         OrderService orderService = mock(OrderService.class);
+        when(orderService.findByIdempotencyKeyHash(anyString())).thenReturn(Optional.empty());
         OrderResponse response = response(100L);
-        when(orderService.createOrder(request(2))).thenReturn(response);
+        when(orderService.createOrder(eq(request(2)), anyString(), anyString()))
+                .thenReturn(response);
         OrderIdempotencyService service = service(orderService);
 
         var first = service.createOrder("checkout-123", request(2));
@@ -102,15 +108,17 @@ class OrderIdempotencyServiceRedisIntegrationTest {
         assertFalse(first.replayed());
         assertTrue(replay.replayed());
         assertEquals(response, replay.response());
-        verify(orderService, times(1)).createOrder(request(2));
+        verify(orderService, times(1)).createOrder(eq(request(2)), anyString(), anyString());
     }
 
     @Test
     void shouldRejectDifferentPayloadAndConcurrentRequest() throws Exception {
         OrderService orderService = mock(OrderService.class);
+        when(orderService.findByIdempotencyKeyHash(anyString())).thenReturn(Optional.empty());
         CountDownLatch creationStarted = new CountDownLatch(1);
         CountDownLatch allowCompletion = new CountDownLatch(1);
-        when(orderService.createOrder(request(2))).thenAnswer(invocation -> {
+        when(orderService.createOrder(eq(request(2)), anyString(), anyString()))
+                .thenAnswer(invocation -> {
             creationStarted.countDown();
             assertTrue(allowCompletion.await(5, TimeUnit.SECONDS));
             return response(100L);
@@ -135,13 +143,14 @@ class OrderIdempotencyServiceRedisIntegrationTest {
 
         allowCompletion.countDown();
         assertEquals(100L, first.get(5, TimeUnit.SECONDS).response().id());
-        verify(orderService, times(1)).createOrder(any());
+        verify(orderService, times(1)).createOrder(any(), anyString(), anyString());
     }
 
     @Test
     void shouldReleaseRedisLockAfterFailedCreation() {
         OrderService orderService = mock(OrderService.class);
-        when(orderService.createOrder(request(2)))
+        when(orderService.findByIdempotencyKeyHash(anyString())).thenReturn(Optional.empty());
+        when(orderService.createOrder(eq(request(2)), anyString(), anyString()))
                 .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT,
                         "Insufficient stock"))
                 .thenReturn(response(100L));
@@ -153,14 +162,22 @@ class OrderIdempotencyServiceRedisIntegrationTest {
 
         assertFalse(retry.replayed());
         assertEquals(100L, retry.response().id());
-        verify(orderService, times(2)).createOrder(request(2));
+        verify(orderService, times(2)).createOrder(eq(request(2)), anyString(), anyString());
     }
 
     @Test
-    void shouldAllowNewCreationAfterCompletedEntryExpires() throws Exception {
+    void shouldReplayPersistedOrderAfterCompletedRedisEntryExpires() throws Exception {
         OrderService orderService = mock(OrderService.class);
-        when(orderService.createOrder(request(2)))
-                .thenReturn(response(100L), response(200L));
+        AtomicReference<OrderService.IdempotentOrder> persisted = new AtomicReference<>();
+        when(orderService.findByIdempotencyKeyHash(anyString()))
+                .thenAnswer(ignored -> Optional.ofNullable(persisted.get()));
+        when(orderService.createOrder(eq(request(2)), anyString(), anyString()))
+                .thenAnswer(invocation -> {
+                    OrderResponse response = response(100L);
+                    persisted.set(new OrderService.IdempotentOrder(invocation.getArgument(2),
+                            response));
+                    return response;
+                });
         OrderIdempotencyService service = service(orderService, Duration.ofSeconds(2),
                 Duration.ofMillis(350));
 
@@ -172,20 +189,22 @@ class OrderIdempotencyServiceRedisIntegrationTest {
                 Duration.ofSeconds(5));
         var afterExpiry = service.createOrder("checkout-123", request(2));
 
-        assertFalse(afterExpiry.replayed());
-        assertEquals(200L, afterExpiry.response().id());
-        verify(orderService, times(2)).createOrder(request(2));
+        assertTrue(afterExpiry.replayed());
+        assertEquals(100L, afterExpiry.response().id());
+        verify(orderService, times(1)).createOrder(eq(request(2)), anyString(), anyString());
     }
 
     @Test
     void staleAttemptMustNotCompleteAReacquiredProcessingLock() throws Exception {
         OrderService orderService = mock(OrderService.class);
+        when(orderService.findByIdempotencyKeyHash(anyString())).thenReturn(Optional.empty());
         AtomicInteger invocation = new AtomicInteger();
         CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
         CountDownLatch secondStarted = new CountDownLatch(1);
         CountDownLatch releaseSecond = new CountDownLatch(1);
-        when(orderService.createOrder(request(2))).thenAnswer(ignored -> {
+        when(orderService.createOrder(eq(request(2)), anyString(), anyString()))
+                .thenAnswer(ignored -> {
             int current = invocation.incrementAndGet();
             if (current == 1) {
                 firstStarted.countDown();
@@ -221,7 +240,7 @@ class OrderIdempotencyServiceRedisIntegrationTest {
         assertEquals(200L, second.get(5, TimeUnit.SECONDS).response().id());
         assertEquals(200L,
                 service.createOrder("checkout-123", request(2)).response().id());
-        verify(orderService, times(2)).createOrder(request(2));
+        verify(orderService, times(2)).createOrder(eq(request(2)), anyString(), anyString());
     }
 
     private OrderIdempotencyService service(OrderService orderService) {

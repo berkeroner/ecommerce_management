@@ -10,13 +10,21 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "orders", uniqueConstraints = @UniqueConstraint(name = "uk_orders_order_no", columnNames = "order_no"))
+@Table(name = "orders", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_orders_order_no", columnNames = "order_no"),
+        @UniqueConstraint(name = "uk_orders_idempotency_key_hash",
+                columnNames = "idempotency_key_hash")
+})
 @Getter @Setter @NoArgsConstructor
 public class Order {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Column(name = "order_no", nullable = false, length = 50)
     private String orderNo;
+    @Column(name = "idempotency_key_hash", length = 64)
+    private String idempotencyKeyHash;
+    @Column(name = "idempotency_request_hash", length = 64)
+    private String idempotencyRequestHash;
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "customer_id", nullable = false)
     private Customer customer;

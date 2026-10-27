@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -74,6 +75,12 @@ public class OrderService {
 
     @Transactional
     public OrderResponse createOrder(OrderRequest request) {
+        return createOrder(request, null, null);
+    }
+
+    @Transactional
+    public OrderResponse createOrder(OrderRequest request, String idempotencyKeyHash,
+            String idempotencyRequestHash) {
         Customer customer = customerRepository
                 .findById(request.customerId())
                 .orElseThrow(() -> new ResponseStatusException(
@@ -174,6 +181,8 @@ public class OrderService {
 
         Order order = new Order();
         order.setOrderNo("ORD-" + UUID.randomUUID());
+        order.setIdempotencyKeyHash(idempotencyKeyHash);
+        order.setIdempotencyRequestHash(idempotencyRequestHash);
         order.setCustomer(customer);
         order.setStatus(OrderStatus.PROCESSING);
         order.setCurrency("TRY");
@@ -204,6 +213,13 @@ public class OrderService {
                 order.getGrandTotal(),
                 order.getCurrency()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<IdempotentOrder> findByIdempotencyKeyHash(String idempotencyKeyHash) {
+        return orderRepository.findByIdempotencyKeyHash(idempotencyKeyHash)
+                .map(order -> new IdempotentOrder(order.getIdempotencyRequestHash(),
+                        toResponse(order)));
     }
 
     @Transactional (readOnly = true)
@@ -463,5 +479,8 @@ public class OrderService {
                 order.getGrandTotal(),
                 order.getCurrency()
         );
+    }
+
+    public record IdempotentOrder(String requestHash, OrderResponse response) {
     }
 }
