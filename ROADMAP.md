@@ -133,7 +133,7 @@ standart cevap döner ve stok güncellemesi eşzamanlı isteklere karşı güven
 - [x] `POST /api/v1/orders` request/response DTO'larını oluştur.
 - [x] README akışına uygun Redis `Idempotency-Key` kontrolü ekle; aynı anahtara
       önceki cevabı döndür ve eşzamanlı tekrar istekleri test et.
-- [ ] Gerçek Redis üzerinde eşzamanlı istek, TTL ve Lua compare-and-set
+- [x] Gerçek Redis üzerinde eşzamanlı istek, TTL ve Lua compare-and-set
       davranışlarını Testcontainers ile doğrula.
 - [ ] Veritabanı commit'i ile Redis `COMPLETED` kaydı arasındaki hata penceresini
       kalıcı idempotency kaydı veya sipariş üzerindeki unique istemci anahtarıyla kapat.
@@ -227,11 +227,11 @@ geçişleri, refund ve ilgili outbox kayıtları testlerle kapsanıyor. Ödeme y
 token yalnızca ödeme başlatma isteğine ait; yöntem doğrulaması ve provider çağrısı
 DI tabanlı `PaymentStrategyFactory` üzerinden ilerliyor.
 
-Son doğrulama: `./mvnw test` — 202 test geçti.
+Son doğrulama: `./mvnw test` — 207 test geçti.
 
 Sıradaki öncelikler:
 
-1. Gerçek Redis entegrasyon testleri ve DB–Redis idempotency hata penceresini kapatma
+1. DB–Redis idempotency hata penceresini kalıcı kayıtla kapatma
 2. Outbox publisher ile RabbitMQ exchange/queue/routing key, retry ve DLQ altyapısı
 3. Eksik eventlerin üretilmesi ve idempotent consumer mekanizması
 4. Product cache/cache invalidation ve ertelenen optimistic locking çalışması

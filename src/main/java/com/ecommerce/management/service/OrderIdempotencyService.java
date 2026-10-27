@@ -5,6 +5,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,7 +68,9 @@ public class OrderIdempotencyService {
 
         String redisKey = KEY_PREFIX + sha256(idempotencyKey.trim());
         String requestHash = sha256(objectMapper.writeValueAsBytes(request));
-        String processingValue = serialize(new Entry(requestHash, State.PROCESSING, null));
+        String ownerToken = UUID.randomUUID().toString();
+        String processingValue = serialize(new Entry(requestHash, State.PROCESSING, null,
+                ownerToken));
 
         try {
             Boolean acquired = redisTemplate.opsForValue()
@@ -124,7 +127,9 @@ public class OrderIdempotencyService {
 
     private void complete(String redisKey, String processingValue, String requestHash,
             OrderResponse response) {
-        String completedValue = serialize(new Entry(requestHash, State.COMPLETED, response));
+        Entry processingEntry = deserialize(processingValue);
+        String completedValue = serialize(new Entry(requestHash, State.COMPLETED, response,
+                processingEntry.ownerToken()));
         try {
             Long replaced = redisTemplate.execute(REPLACE_IF_UNCHANGED, java.util.List.of(redisKey),
                     processingValue, completedValue, Long.toString(completedTtl.toMillis()));
@@ -195,7 +200,8 @@ public class OrderIdempotencyService {
     public record Result(OrderResponse response, boolean replayed) {
     }
 
-    private record Entry(String requestHash, State state, OrderResponse response) {
+    private record Entry(String requestHash, State state, OrderResponse response,
+            String ownerToken) {
     }
 
     private enum State {
