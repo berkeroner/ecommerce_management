@@ -21,6 +21,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Page<Order> findAllByCustomerId(Long customerId, Pageable pageable);
 
+    Optional<Order> findByIdempotencyKeyHash(String idempotencyKeyHash);
+
     boolean existsByIdAndCustomerIdAndCustomerStatus(
             Long id, Long customerId, com.ecommerce.management.entity.enums.RecordStatus status);
 

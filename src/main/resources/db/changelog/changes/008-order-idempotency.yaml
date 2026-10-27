@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: 008-order-idempotency
+      author: codex
+      changes:
+        - addColumn:
+            tableName: orders
+            columns:
+              - column:
+                  name: idempotency_key_hash
+                  type: varchar(64)
+              - column:
+                  name: idempotency_request_hash
+                  type: varchar(64)
+        - addUniqueConstraint:
+            tableName: orders
+            columnNames: idempotency_key_hash
+            constraintName: uk_orders_idempotency_key_hash

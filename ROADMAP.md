@@ -135,7 +135,7 @@ standart cevap döner ve stok güncellemesi eşzamanlı isteklere karşı güven
       önceki cevabı döndür ve eşzamanlı tekrar istekleri test et.
 - [x] Gerçek Redis üzerinde eşzamanlı istek, TTL ve Lua compare-and-set
       davranışlarını Testcontainers ile doğrula.
-- [ ] Veritabanı commit'i ile Redis `COMPLETED` kaydı arasındaki hata penceresini
+- [x] Veritabanı commit'i ile Redis `COMPLETED` kaydı arasındaki hata penceresini
       kalıcı idempotency kaydı veya sipariş üzerindeki unique istemci anahtarıyla kapat.
 - [x] Müşteri, ürün, aktiflik ve stok doğrulamalarını yap.
 - [x] Stok rezervasyonunu transaction ve atomik stok güncellemesi veya Redis
@@ -227,17 +227,16 @@ geçişleri, refund ve ilgili outbox kayıtları testlerle kapsanıyor. Ödeme y
 token yalnızca ödeme başlatma isteğine ait; yöntem doğrulaması ve provider çağrısı
 DI tabanlı `PaymentStrategyFactory` üzerinden ilerliyor.
 
-Son doğrulama: `./mvnw test` — 207 test geçti.
+Son doğrulama: `./mvnw test` — 210 test geçti.
 
 Sıradaki öncelikler:
 
-1. DB–Redis idempotency hata penceresini kalıcı kayıtla kapatma
-2. Outbox publisher ile RabbitMQ exchange/queue/routing key, retry ve DLQ altyapısı
-3. Eksik eventlerin üretilmesi ve idempotent consumer mekanizması
-4. Product cache/cache invalidation ve ertelenen optimistic locking çalışması
-5. Shipment strategy, attachment ve bildirim akışları
+1. Outbox publisher ile RabbitMQ exchange/queue/routing key, retry ve DLQ altyapısı
+2. Eksik eventlerin üretilmesi ve idempotent consumer mekanizması
+3. Product cache/cache invalidation ve ertelenen optimistic locking çalışması
+4. Shipment strategy, attachment ve bildirim akışları
 
 Product optimistic locking ve eşzamanlılık testleri daha sonraya ertelendi;
-bu nedenle Faz 2'nin ilgili çıkış kriteri henüz tam karşılanmıyor. Faz 3'te gerçek
-Redis entegrasyon testi ve DB–Redis hata penceresi çalışması; Faz 4'te ise mesaj
-yayınlama/tüketme altyapısı eksik.
+bu nedenle Faz 2'nin ilgili çıkış kriteri henüz tam karşılanmıyor. Faz 3'ün Redis
+idempotency güvence çalışmaları tamamlandı; Faz 4'te mesaj yayınlama/tüketme
+altyapısı eksik.

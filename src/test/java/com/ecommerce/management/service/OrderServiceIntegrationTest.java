@@ -32,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import tools.jackson.databind.json.JsonMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -125,6 +126,30 @@ class OrderServiceIntegrationTest {
             assertFalse(payload.path("data").has("payment_method"));
             assertFalse(payload.path("data").has("shipping_provider"));
         });
+    }
+
+    @Test
+    void shouldPersistUniqueIdempotencyHashesAndReplayData() {
+        List<Long> ids = fixture(5);
+        OrderRequest request = request(ids);
+        String keyHash = "a".repeat(64);
+        String requestHash = "b".repeat(64);
+
+        var response = orderService.createOrder(request, keyHash, requestHash);
+        var persisted = orderService.findByIdempotencyKeyHash(keyHash).orElseThrow();
+
+        assertEquals(requestHash, persisted.requestHash());
+        assertEquals(response, persisted.response());
+        var order = orderRepository.findById(response.id()).orElseThrow();
+        assertEquals(keyHash, order.getIdempotencyKeyHash());
+        assertEquals(requestHash, order.getIdempotencyRequestHash());
+
+        assertThrows(DataIntegrityViolationException.class,
+                () -> orderService.createOrder(request, keyHash, "c".repeat(64)));
+
+        assertEquals(1L, orderRepository.count());
+        assertEquals(3, productRepository.findById(ids.get(1)).orElseThrow().getStock());
+        assertEquals(1L, outboxEventRepository.count());
     }
 
     @Test

@@ -5,12 +5,14 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.HttpStatus;
@@ -66,8 +68,14 @@ public class OrderIdempotencyService {
     public Result createOrder(String idempotencyKey, OrderRequest request) {
         validateKey(idempotencyKey);
 
-        String redisKey = KEY_PREFIX + sha256(idempotencyKey.trim());
+        String idempotencyKeyHash = sha256(idempotencyKey.trim());
+        String redisKey = KEY_PREFIX + idempotencyKeyHash;
         String requestHash = sha256(objectMapper.writeValueAsBytes(request));
+        Optional<Result> persisted = replayPersisted(idempotencyKeyHash, requestHash);
+        if (persisted.isPresent()) {
+            return persisted.get();
+        }
+
         String ownerToken = UUID.randomUUID().toString();
         String processingValue = serialize(new Entry(requestHash, State.PROCESSING, null,
                 ownerToken));
@@ -85,15 +93,37 @@ public class OrderIdempotencyService {
             throw redisUnavailable(exception);
         }
 
+        persisted = replayPersisted(idempotencyKeyHash, requestHash);
+        if (persisted.isPresent()) {
+            Result result = persisted.get();
+            complete(redisKey, processingValue, requestHash, result.response());
+            return result;
+        }
+
         OrderResponse response;
         try {
-            response = orderService.createOrder(request);
+            response = orderService.createOrder(request, idempotencyKeyHash, requestHash);
+        } catch (DataIntegrityViolationException exception) {
+            release(redisKey, processingValue);
+            return replayPersisted(idempotencyKeyHash, requestHash)
+                    .orElseThrow(() -> exception);
         } catch (RuntimeException exception) {
             release(redisKey, processingValue);
             throw exception;
         }
         complete(redisKey, processingValue, requestHash, response);
         return new Result(response, false);
+    }
+
+    private Optional<Result> replayPersisted(String idempotencyKeyHash, String requestHash) {
+        return orderService.findByIdempotencyKeyHash(idempotencyKeyHash)
+                .map(order -> {
+                    if (!requestHash.equals(order.requestHash())) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "Idempotency-Key has already been used with a different request");
+                    }
+                    return new Result(order.response(), true);
+                });
     }
 
     private Result replayOrReject(String redisKey, String requestHash) {
