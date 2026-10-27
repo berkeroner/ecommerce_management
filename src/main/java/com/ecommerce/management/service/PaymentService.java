@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.ecommerce.management.client.DummyPaymentClient;
 import com.ecommerce.management.dto.payment.PaymentRequest;
 import com.ecommerce.management.dto.payment.PaymentResponse;
 import com.ecommerce.management.dto.payment.provider.DummyPaymentAcceptedResponse;
@@ -31,6 +30,8 @@ import com.ecommerce.management.repository.OrderRepository;
 import com.ecommerce.management.repository.OrderStatusHistoryRepository;
 import com.ecommerce.management.repository.OutboxEventRepository;
 import com.ecommerce.management.repository.PaymentRepository;
+import com.ecommerce.management.payment.PaymentStrategy;
+import com.ecommerce.management.payment.PaymentStrategyFactory;
 
 import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.ObjectMapper;
@@ -43,14 +44,17 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final OutboxEventRepository outboxEventRepository;
-    private final DummyPaymentClient dummyPaymentClient;
+    private final PaymentStrategyFactory paymentStrategyFactory;
     private final PaymentInitiationService paymentInitiationService;
     private final ObjectMapper objectMapper;
 
     public PaymentResponse startPayment(Long orderId, PaymentRequest request) {
-        var pending = paymentInitiationService.createPending(orderId, request);
+        PaymentStrategy strategy = paymentStrategyFactory.get(request.method());
+        strategy.validate(request);
+        var pending = paymentInitiationService.createPending(
+                orderId, request, strategy.provider());
         try {
-            DummyPaymentAcceptedResponse providerResponse = dummyPaymentClient.createPayment(
+            DummyPaymentAcceptedResponse providerResponse = strategy.start(
                     pending.idempotencyKey(), pending.providerRequest());
             return paymentInitiationService.recordProviderAcceptance(
                     pending.idempotencyKey(), providerResponse);
@@ -158,8 +162,9 @@ public class PaymentService {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT, "Payment does not have a valid provider payment id");
         }
-        DummyRefundResponse providerResponse = dummyPaymentClient.refundPayment(
-                providerPaymentId, payment.getMethod());
+        DummyRefundResponse providerResponse = paymentStrategyFactory
+                .get(payment.getMethod())
+                .refund(providerPaymentId);
         if (providerResponse == null
                 || providerResponse.refundId() == null
                 || providerResponse.refundId().isBlank()) {

@@ -153,9 +153,9 @@ stok ve transaction rollback testleri geçer.
 
 - [x] Docker Compose'a Redis ve RabbitMQ servislerini ekle.
 - [x] Redis idempotency süresi, başarısız işlem ve tekrar istek davranışlarını doğrula.
-- [ ] Sipariş ve ödeme request sözleşmesini sadeleştir; `payment_method`,
+- [x] Sipariş ve ödeme request sözleşmesini sadeleştir; `payment_method`,
       `payment_token` ve `shipping_provider` alanlarının tek bir sahibi olmasını sağla.
-- [ ] Ödeme başlatma akışında `PaymentStrategyFactory` kullanımını ve ödeme
+- [x] Ödeme başlatma akışında `PaymentStrategyFactory` kullanımını ve ödeme
       yöntemine göre token/provider davranışını tamamla.
 - [ ] Product liste/detay cache ve mutation sonrası cache invalidation ekle.
 - [ ] Outbox publisher'ı retry bilgisiyle birlikte geliştir.
@@ -223,22 +223,21 @@ oluşturmaz ve başarısız mesaj DLQ'ya gider.
 
 Sipariş çekirdeği, Redis tabanlı sipariş idempotency ve temel ödeme yaşam döngüsü
 tamamlandı. Başarılı/başarısız ödeme callback'i, stok telafisi, sipariş durum
-geçişleri, refund ve ilgili outbox kayıtları testlerle kapsanıyor. Sipariş ve ödeme
-requestlerinde ödeme yöntemi tekrar ediyor; `payment_token` henüz provider akışında
-kullanılmıyor ve ödeme başlatma işlemi strategy factory üzerinden ilerlemiyor.
+geçişleri, refund ve ilgili outbox kayıtları testlerle kapsanıyor. Ödeme yöntemi ve
+token yalnızca ödeme başlatma isteğine ait; yöntem doğrulaması ve provider çağrısı
+DI tabanlı `PaymentStrategyFactory` üzerinden ilerliyor.
 
-Son doğrulama: `./mvnw test` — 179 test geçti.
+Son doğrulama: `./mvnw test` — 202 test geçti.
 
 Sıradaki öncelikler:
 
-1. Sipariş/ödeme request sözleşmesini sadeleştirme ve ödeme strategy akışını tamamlama
-2. Gerçek Redis entegrasyon testleri ve DB–Redis idempotency hata penceresini kapatma
-3. Outbox publisher ile RabbitMQ exchange/queue/routing key, retry ve DLQ altyapısı
-4. Eksik eventlerin üretilmesi ve idempotent consumer mekanizması
-5. Product cache/cache invalidation ve ertelenen optimistic locking çalışması
-6. Shipment strategy, attachment ve bildirim akışları
+1. Gerçek Redis entegrasyon testleri ve DB–Redis idempotency hata penceresini kapatma
+2. Outbox publisher ile RabbitMQ exchange/queue/routing key, retry ve DLQ altyapısı
+3. Eksik eventlerin üretilmesi ve idempotent consumer mekanizması
+4. Product cache/cache invalidation ve ertelenen optimistic locking çalışması
+5. Shipment strategy, attachment ve bildirim akışları
 
 Product optimistic locking ve eşzamanlılık testleri daha sonraya ertelendi;
 bu nedenle Faz 2'nin ilgili çıkış kriteri henüz tam karşılanmıyor. Faz 3'te gerçek
-Redis entegrasyon testi ve DB–Redis hata penceresi çalışması; Faz 4'te ise ödeme
-sözleşmesi ile mesaj yayınlama/tüketme altyapısı eksik.
+Redis entegrasyon testi ve DB–Redis hata penceresi çalışması; Faz 4'te ise mesaj
+yayınlama/tüketme altyapısı eksik.

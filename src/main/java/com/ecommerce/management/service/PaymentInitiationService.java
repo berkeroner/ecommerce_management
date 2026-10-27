@@ -49,7 +49,8 @@ public class PaymentInitiationService {
     private final ObjectMapper objectMapper;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public PendingPaymentAttempt createPending(Long orderId, PaymentRequest request) {
+    public PendingPaymentAttempt createPending(
+            Long orderId, PaymentRequest request, String provider) {
         Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Order not found: " + orderId));
@@ -79,7 +80,7 @@ public class PaymentInitiationService {
         payment.setOrder(order);
         payment.setPaymentNo("PAY-" + UUID.randomUUID());
         payment.setMethod(request.method());
-        payment.setProvider("dummy-payment-service");
+        payment.setProvider(provider);
         payment.setStatus(PaymentStatus.PENDING);
         payment.setAmount(order.getGrandTotal());
         payment.setIdempotencyKey(idempotencyKey.toString());
