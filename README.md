@@ -72,9 +72,10 @@ Uygulama katmanları `controller → service → repository` biçiminde ayrılm�
 | Shipment strategy, attachment ve notification | Planlandı |
 
 Redis sipariş oluşturma idempotency akışında kullanılmaktadır. Product cache ile RabbitMQ publisher ve consumer akışları henüz tamamlanmamıştır.
-İdempotency davranışı birim testleriyle kapsanmaktadır; gerçek Redis üzerinde
-eşzamanlılık/TTL entegrasyon testleri ve veritabanı commit'i ile Redis tamamlanma
-kaydı arasındaki hata penceresinin kalıcı kayıtla kapatılması planlanmaktadır.
+İdempotency davranışı birim testlerine ek olarak Testcontainers ile başlatılan gerçek
+Redis üzerinde eşzamanlılık, TTL ve Lua compare-and-set senaryolarıyla kapsanmaktadır.
+Veritabanı commit'i ile Redis tamamlanma kaydı arasındaki hata penceresinin kalıcı
+kayıtla kapatılması planlanmaktadır.
 
 ## Gereksinimler
 
@@ -500,7 +501,9 @@ Adresler `customer` veya `order`, ek dosya kayıtları ise `product`, `order` ve
 
 ## Testler
 
-Testler H2 ve teste özel yapılandırmayla çalışır; `.env`, MySQL, Redis veya RabbitMQ gerektirmez:
+Testler H2 ve teste özel yapılandırmayla çalışır; `.env`, MySQL, kurulu bir Redis veya
+RabbitMQ gerektirmez. Redis entegrasyon testi izole bir Redis container'ı başlattığı
+için Docker'ın çalışıyor olması gerekir:
 
 ```bash
 ./mvnw clean test
@@ -527,14 +530,13 @@ src/main/java/com/ecommerce/management/
 
 Yaklaşan başlıca çalışmalar:
 
-1. Sipariş/ödeme request sözleşmesinin sadeleştirilmesi ve ödeme strategy akışının tamamlanması
-2. Redis idempotency entegrasyon testleri ve kalıcı idempotency güvencesi
-3. Outbox publisher, RabbitMQ retry ve Dead Letter Queue
-4. Idempotent event consumer'ları
-5. Product cache ve cache invalidation
-6. Shipment strategy ve kargo yaşam döngüsü
-7. Attachment ve notification akışları
-8. Testcontainers, metrics ve tracing
+1. Kalıcı idempotency güvencesi
+2. Outbox publisher, RabbitMQ retry ve Dead Letter Queue
+3. Idempotent event consumer'ları
+4. Product cache ve cache invalidation
+5. Shipment strategy ve kargo yaşam döngüsü
+6. Attachment ve notification akışları
+7. MySQL/RabbitMQ Testcontainers testleri, metrics ve tracing
 
 Ayrıntılı ve güncel görev listesi için [ROADMAP.md](ROADMAP.md) dosyasına bakın.
 
